@@ -1,0 +1,119 @@
+{
+  "games": {
+    "brawl-1v1-1774682204081": {
+      "players": {
+        "Toland Drump": {
+          "hits": 2,
+          "kills": 0,
+          "wins": 0
+        },
+        "Khayatholla Ahamenei": {
+          "hits": 2,
+          "kills": 1,
+          "wins": 1
+        }
+      },
+      "createdAt": 1774682219225,
+      "gameIndex": "game-1",
+      "brawlMode": "1v1",
+      "winner": "Khayatholla Ahamenei"
+    },
+    "brawl-1v1-1774682340042": {
+      "players": {
+        "Toland Drump": {
+          "hits": 0,
+          "kills": 1,
+          "wins": 1
+        }
+      },
+      "createdAt": 1774682360590,
+      "gameIndex": "game-2",
+      "brawlMode": "1v1",
+      "winner": "Toland Drump"
+    },
+    "brawl-1v1-1774682363016": {
+      "players": {
+        "Toland Drump": {
+          "hits": 4,
+          "kills": 0,
+          "wins": 0
+        },
+        "Khayatholla Ahamenei": {
+          "hits": 1,
+          "kills": 1,
+          "wins": 1
+        }
+      },
+      "createdAt": 1774682383974,
+      "gameIndex": "game-3",
+      "brawlMode": "1v1",
+      "winner": "Khayatholla Ahamenei"
+    },
+    "brawl-1v1-1774684146256": {
+      "players": {
+        "Khayatholla Ahamenei": {
+          "hits": 4,
+          "kills": 0,
+          "wins": 0
+        },
+        "Toland Drump": {
+          "hits": 4,
+          "kills": 0,
+          "wins": 0
+        }
+      },
+      "createdAt": 1774684159716,
+      "gameIndex": "game-4",
+      "brawlMode": "1v1"
+    },
+    "brawl-1v1-1774684208897": {
+      "players": {
+        "Khayatholla Ahamenei": {
+          "hits": 5,
+          "kills": 0,
+          "wins": 0
+        },
+        "Toland Drump": {
+          "hits": 2,
+          "kills": 1,
+          "wins": 1
+        }
+      },
+      "createdAt": 1774684300584,
+      "gameIndex": "game-5",
+      "brawlMode": "1v1",
+      "winner": "Toland Drump"
+    },
+    "brawl-1v1-1774689004235": {
+      "players": {
+        "Khayatholla Ahamenei": {
+          "hits": 1,
+          "kills": 0,
+          "wins": 0
+        },
+        "Toland Drump": {
+          "hits": 1,
+          "kills": 0,
+          "wins": 0
+        }
+      },
+      "createdAt": 1774689014625,
+      "gameIndex": "game-6",
+      "brawlMode": "1v1"
+    }
+  },
+  "totals_1v1": {
+    "Toland Drump": {
+      "hits": 13,
+      "kills": 2,
+      "wins": 2,
+      "games": 5
+    },
+    "Khayatholla Ahamenei": {
+      "hits": 13,
+      "kills": 2,
+      "wins": 2,
+      "games": 5
+    }
+  }
+}

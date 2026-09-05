@@ -1,0 +1,11 @@
+{
+  "name": "project-r",
+  "private": true,
+  "version": "1.0.0",
+  "description": "ProjectR unified gaming platform",
+  "scripts": {
+    "server": "node server/index.js",
+    "client": "npm --prefix apps/bubblebash/client run dev",
+    "build": "npm --prefix apps/bubblebash/client run build"
+  }
+}

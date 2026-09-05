@@ -1,0 +1,28 @@
+{
+  "games": [
+    {
+      "id": "bubblebash",
+      "client": "apps/bubblebash/client",
+      "server": "apps/bubblebash/server",
+      "clientPort": 5173,
+      "serverPort": 5000,
+      "entry": "apps/bubblebash/client/src/pages/ArenaPage.tsx"
+    },
+    {
+      "id": "ipl-cricket",
+      "client": "apps/ipl-cricket/client",
+      "server": "apps/ipl-cricket/server",
+      "clientPort": 5174,
+      "serverPort": 5001,
+      "entry": "apps/ipl-cricket/client/src/pages/CricketPage.tsx"
+    },
+    {
+      "id": "football",
+      "client": "apps/football/client",
+      "server": "apps/football/server",
+      "clientPort": 5175,
+      "serverPort": 5002,
+      "entry": "apps/football/client/src/football/pages/FootballPage.tsx"
+    }
+  ]
+}

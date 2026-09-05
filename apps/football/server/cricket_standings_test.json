@@ -1,0 +1,122 @@
+[
+  {
+    "shortName": "CSK",
+    "played": 0,
+    "won": 0,
+    "lost": 0,
+    "tied": 0,
+    "totalRunsScored": 0,
+    "totalOversPlayed": 0,
+    "totalRunsConceded": 0,
+    "totalOversBowled": 0,
+    "pts": 0
+  },
+  {
+    "shortName": "DC",
+    "played": 0,
+    "won": 0,
+    "lost": 0,
+    "tied": 0,
+    "totalRunsScored": 0,
+    "totalOversPlayed": 0,
+    "totalRunsConceded": 0,
+    "totalOversBowled": 0,
+    "pts": 0
+  },
+  {
+    "shortName": "GT",
+    "played": 1,
+    "won": 0,
+    "lost": 1,
+    "tied": 0,
+    "totalRunsScored": 113,
+    "totalOversPlayed": 11.666666666666666,
+    "totalRunsConceded": 217,
+    "totalOversBowled": 20,
+    "pts": 0
+  },
+  {
+    "shortName": "KKR",
+    "played": 0,
+    "won": 0,
+    "lost": 0,
+    "tied": 0,
+    "totalRunsScored": 0,
+    "totalOversPlayed": 0,
+    "totalRunsConceded": 0,
+    "totalOversBowled": 0,
+    "pts": 0
+  },
+  {
+    "shortName": "LSG",
+    "played": 0,
+    "won": 0,
+    "lost": 0,
+    "tied": 0,
+    "totalRunsScored": 0,
+    "totalOversPlayed": 0,
+    "totalRunsConceded": 0,
+    "totalOversBowled": 0,
+    "pts": 0
+  },
+  {
+    "shortName": "MI",
+    "played": 2,
+    "won": 2,
+    "lost": 0,
+    "tied": 0,
+    "totalRunsScored": 197,
+    "totalOversPlayed": 16.5,
+    "totalRunsConceded": 191,
+    "totalOversBowled": 19,
+    "pts": 4
+  },
+  {
+    "shortName": "PBKS",
+    "played": 0,
+    "won": 0,
+    "lost": 0,
+    "tied": 0,
+    "totalRunsScored": 0,
+    "totalOversPlayed": 0,
+    "totalRunsConceded": 0,
+    "totalOversBowled": 0,
+    "pts": 0
+  },
+  {
+    "shortName": "RR",
+    "played": 2,
+    "won": 0,
+    "lost": 2,
+    "tied": 0,
+    "totalRunsScored": 191,
+    "totalOversPlayed": 19,
+    "totalRunsConceded": 197,
+    "totalOversBowled": 16.5,
+    "pts": 0
+  },
+  {
+    "shortName": "RCB",
+    "played": 1,
+    "won": 1,
+    "lost": 0,
+    "tied": 0,
+    "totalRunsScored": 217,
+    "totalOversPlayed": 20,
+    "totalRunsConceded": 113,
+    "totalOversBowled": 11.666666666666666,
+    "pts": 2
+  },
+  {
+    "shortName": "SRH",
+    "played": 0,
+    "won": 0,
+    "lost": 0,
+    "tied": 0,
+    "totalRunsScored": 0,
+    "totalOversPlayed": 0,
+    "totalRunsConceded": 0,
+    "totalOversBowled": 0,
+    "pts": 0
+  }
+]

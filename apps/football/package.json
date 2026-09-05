@@ -1,0 +1,22 @@
+{
+  "name": "football",
+  "version": "1.0.0",
+  "description": "Standalone Football game",
+  "main": "server/index.js",
+  "scripts": {
+    "start": "cd server && node index.js",
+    "server": "cd server && node index.js",
+    "client": "cd client && npm run dev",
+    "install-all": "npm install && cd client && npm install && cd ../server && npm install",
+    "dev:server": "cd server && node index.js",
+    "dev:client": "cd client && npm run dev",
+    "build": "cd client && npm run build"
+  },
+  "keywords": ["bubble", "brawl", "1v1", "game", "physics", "arena"],
+  "author": "Extracted from BubbleBash",
+  "license": "ISC",
+  "workspaces": [
+    "client",
+    "server"
+  ]
+}

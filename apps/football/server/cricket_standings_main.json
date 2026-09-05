@@ -1,0 +1,122 @@
+[
+  {
+    "shortName": "CSK",
+    "played": 14,
+    "won": 6,
+    "lost": 8,
+    "tied": 0,
+    "totalRunsScored": 2522,
+    "totalOversPlayed": 247.66666666666666,
+    "totalRunsConceded": 2487,
+    "totalOversBowled": 241.66666666666669,
+    "pts": 12
+  },
+  {
+    "shortName": "DC",
+    "played": 14,
+    "won": 6,
+    "lost": 8,
+    "tied": 0,
+    "totalRunsScored": 2489,
+    "totalOversPlayed": 238.99999999999997,
+    "totalRunsConceded": 2602,
+    "totalOversBowled": 258.83333333333337,
+    "pts": 12
+  },
+  {
+    "shortName": "GT",
+    "played": 17,
+    "won": 11,
+    "lost": 6,
+    "tied": 0,
+    "totalRunsScored": 3224,
+    "totalOversPlayed": 307,
+    "totalRunsConceded": 3088,
+    "totalOversBowled": 305.1666666666667,
+    "pts": 22
+  },
+  {
+    "shortName": "KKR",
+    "played": 14,
+    "won": 6,
+    "lost": 8,
+    "tied": 0,
+    "totalRunsScored": 2602,
+    "totalOversPlayed": 241.16666666666666,
+    "totalRunsConceded": 2516,
+    "totalOversBowled": 239.33333333333334,
+    "pts": 12
+  },
+  {
+    "shortName": "LSG",
+    "played": 14,
+    "won": 6,
+    "lost": 8,
+    "tied": 0,
+    "totalRunsScored": 2221,
+    "totalOversPlayed": 234.00000000000003,
+    "totalRunsConceded": 2312,
+    "totalOversBowled": 226.83333333333334,
+    "pts": 12
+  },
+  {
+    "shortName": "MI",
+    "played": 14,
+    "won": 6,
+    "lost": 8,
+    "tied": 0,
+    "totalRunsScored": 2562,
+    "totalOversPlayed": 250.66666666666666,
+    "totalRunsConceded": 2669,
+    "totalOversBowled": 241.66666666666666,
+    "pts": 12
+  },
+  {
+    "shortName": "PBKS",
+    "played": 14,
+    "won": 6,
+    "lost": 8,
+    "tied": 0,
+    "totalRunsScored": 2608,
+    "totalOversPlayed": 256.16666666666663,
+    "totalRunsConceded": 2545,
+    "totalOversBowled": 244.83333333333331,
+    "pts": 12
+  },
+  {
+    "shortName": "RR",
+    "played": 16,
+    "won": 8,
+    "lost": 8,
+    "tied": 0,
+    "totalRunsScored": 2730,
+    "totalOversPlayed": 255.16666666666666,
+    "totalRunsConceded": 2887,
+    "totalOversBowled": 275.1666666666667,
+    "pts": 16
+  },
+  {
+    "shortName": "RCB",
+    "played": 16,
+    "won": 11,
+    "lost": 5,
+    "tied": 0,
+    "totalRunsScored": 2861,
+    "totalOversPlayed": 265.66666666666663,
+    "totalRunsConceded": 2841,
+    "totalOversBowled": 270,
+    "pts": 22
+  },
+  {
+    "shortName": "SRH",
+    "played": 15,
+    "won": 8,
+    "lost": 7,
+    "tied": 0,
+    "totalRunsScored": 2976,
+    "totalOversPlayed": 275.33333333333337,
+    "totalRunsConceded": 2848,
+    "totalOversBowled": 268.3333333333333,
+    "pts": 16
+  }
+]
