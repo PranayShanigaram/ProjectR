@@ -1,0 +1,917 @@
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>BubbleClash — Leaderboard (User)</title>
+  <style>
+    :root{--bg1:#071029;--bg2:#0f172a;--card:#0b1220;--accent:#7c3aed}
+    html,body{height:100%;margin:0}
+    body{font-family:system-ui,-apple-system,Segoe UI,Roboto,"Helvetica Neue",Arial;background:linear-gradient(120deg,var(--bg1),var(--bg2));color:#fff;padding:28px;}
+    .wrap{max-width:1200px;margin:0 auto}
+    h1{font-size:24px;margin:0 0 18px 0;letter-spacing:0.4px}
+
+    /* animated gradient background glow */
+    .hero{position:relative;padding:18px;border-radius:16px;overflow:visible;background:linear-gradient(180deg, rgba(255,255,255,0.02), rgba(255,255,255,0.01));box-shadow:0 6px 30px rgba(2,6,23,0.6);}
+    .hero::after{content:'';position:absolute;top:5px;right:25px;width:90px;height:90px;border-radius:50%;background:url('/client-types/watermarkfin.png') center/contain no-repeat;opacity:0.7;z-index:10;pointer-events:none}
+    .glow{position:absolute;left:-20%;top:-30%;width:160%;height:160%;background:radial-gradient(circle at 20% 20%, rgba(124,58,237,0.12), transparent 10%, transparent 50%), radial-gradient(circle at 80% 80%, rgba(14,165,233,0.06), transparent 8%);filter:blur(40px);animation:glow 8s linear infinite;pointer-events:none}
+    @keyframes glow{0%{transform:translateY(0)}50%{transform:translateY(10px)}100%{transform:translateY(0)}}
+
+    .controls{display:flex;gap:8px;align-items:center;z-index:2;position:relative}
+    select,input{background:rgba(255,255,255,0.03);border:0;padding:10px;border-radius:8px;color:#fff}
+    button{background:linear-gradient(90deg,var(--accent),#0ea5e9);border:0;padding:8px 12px;border-radius:10px;color:#fff;cursor:pointer}
+
+    .card{margin-top:16px;border-radius:12px;overflow:hidden;background:linear-gradient(180deg, rgba(255,255,255,0.02), rgba(255,255,255,0.01));box-shadow:0 10px 40px rgba(2,6,23,0.6);z-index:1;position:relative}
+    .statBar{height:8px;background:linear-gradient(90deg,#7c3aed,#0ea5e9);border-radius:999px;width:0;transition:width 900ms cubic-bezier(.2,.9,.2,1);box-shadow:0 4px 10px rgba(0,0,0,0.35)}
+    .detailPanel{display:flex;gap:20px;align-items:center;padding:18px;border-radius:14px;background:linear-gradient(180deg,rgba(255,255,255,0.02),rgba(255,255,255,0.01));box-shadow:0 18px 60px rgba(2,6,23,0.55);animation:panelIn 320ms ease-out}
+    .detailAvatar{width:220px;height:220px;border-radius:16px;background:linear-gradient(135deg,#7c3aed,#0ea5e9);display:flex;align-items:center;justify-content:center;font-size:48px;font-weight:800;color:#fff;box-shadow:0 18px 60px rgba(0,0,0,0.55);overflow:hidden;transform:translateZ(30px)}
+    .detailAvatar.pulse{animation:avatarPulse 1400ms ease-in-out infinite}
+    .detailAvatar img{width:100%;height:100%;object-fit:cover;display:block}
+    @keyframes avatarPulse{0%{transform:scale(1)}50%{transform:scale(1.04)}100%{transform:scale(1)}}
+    .detailStats{flex:1}
+    .detailStats h2{margin:0 0 8px 0;font-size:22px}
+    .detailRow{display:flex;align-items:center;gap:12px;margin:8px 0}
+    .detailLabel{width:88px;color:rgba(255,255,255,0.75)}
+    .statValue{font-weight:800;min-width:48px;text-align:right}
+    .backBtn{background:transparent;border:1px solid rgba(255,255,255,0.06);color:#fff;padding:8px 10px;border-radius:8px;cursor:pointer;margin-bottom:10px;position:relative;z-index:30}
+    .detailFull{display:flex;flex-direction:column;gap:12px}
+    @keyframes panelIn{from{opacity:0;transform:translateY(8px) scale(.99)}to{opacity:1;transform:none}}
+    .row{display:grid;grid-template-columns:48px 1fr 90px 90px 80px 80px 100px;gap:8px;padding:12px 16px;align-items:center;position:relative}
+    .row.header{font-weight:700;background:linear-gradient(90deg, rgba(255,255,255,0.02), rgba(255,255,255,0.01));}
+    .row.winner{background:linear-gradient(90deg, rgba(16,185,129,0.15), rgba(16,185,129,0.08));border-left:3px solid #10b981;box-shadow:inset 0 0 20px rgba(16,185,129,0.1)}
+    .player{white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+    
+    /* Hover effect for clickable player rows */
+    .player-row, .boss-row{
+      cursor:pointer !important;
+      transition:all 0.2s ease !important;
+      border-left:3px solid transparent !important;
+      pointer-events:auto !important;
+    }
+    .player-row:hover, .boss-row:hover{
+      background:linear-gradient(90deg, rgba(124,58,237,0.25), rgba(14,165,233,0.15)) !important;
+      border-left:3px solid #7c3aed !important;
+      transform:translateX(4px) !important;
+      box-shadow:0 4px 12px rgba(124,58,237,0.3) !important;
+    }
+
+    .muted{color:rgba(255,255,255,0.6);font-size:13px}
+
+    /* Winner highlights */
+    .winner-highlight{
+      border:3px solid #10b981 !important;
+      box-shadow:0 0 15px #10b981, 0 0 30px rgba(16,185,129,0.6), 0 0 45px rgba(16,185,129,0.4), inset 0 0 10px rgba(16,185,129,0.2);
+      transform:scale(1.08);
+      transition:all 250ms ease;
+      position:relative;
+    }
+    .winner-highlight::after{
+      content:'';
+      position:absolute;
+      top:-3px;
+      left:-3px;
+      right:-3px;
+      bottom:-3px;
+      border:2px solid #10b981;
+      border-radius:inherit;
+      box-shadow:0 0 20px #10b981, 0 0 40px rgba(16,185,129,0.5);
+      pointer-events:none;
+      animation:neon-pulse 2s ease-in-out infinite;
+    }
+    @keyframes neon-pulse{
+      0%, 100%{box-shadow:0 0 20px #10b981, 0 0 40px rgba(16,185,129,0.5)}
+      50%{box-shadow:0 0 30px #10b981, 0 0 60px rgba(16,185,129,0.8)}
+    }
+
+    /* responsive adjustments */
+    @media (max-width:640px){.row{grid-template-columns:32px 1fr 60px 60px 60px;padding:8px}}
+  </style>
+</head>
+<body>
+  <div class="wrap">
+    <h1>Leaderboard — BRAWLERS ARENA 💀</h1>
+    <div class="hero" id="hero">
+      <div class="glow" aria-hidden></div>
+      <div style="position:relative;z-index:2;padding:12px">
+        <div class="controls">
+          <label for="modeSelect" class="muted">Mode:</label>
+          <select id="modeSelect">
+            <option value="normal">Normal Arena</option>
+            <option value="boss">Boss Arena</option>
+            <option value="brawl">Brawl Arena</option>
+          </select>
+          <select id="brawlModeSelect" style="display:none;">
+            <option value="">All</option>
+            <option value="1v1">1v1</option>
+            <option value="1vMany">1vMany</option>
+          </select>
+          <label for="gameSelect" class="muted">View:</label>
+          <select id="gameSelect"></select>
+          <input id="search" placeholder="Search player..." />
+          <button id="refresh">Refresh</button>
+        </div>
+      </div>
+
+      <!-- LIST VIEW: controls, top player, and table -->
+      <div id="listView">
+        <!-- TOP PLAYER CARD -->
+        <div id="topPlayer" style="margin-top:12px;">
+          <!-- filled dynamically -->
+        </div>
+
+        <div class="card" id="table">
+        <div class="row header">
+          <div style="width:48px">#</div>
+          <div>Player</div>
+          <div style="text-align:right">Kills</div>
+          <div style="text-align:right">Hits</div>
+          <div style="text-align:right">Wins</div>
+          <div style="text-align:right">Games</div>
+          <div style="text-align:right">Points</div>
+        </div>
+        <div id="rows"></div>
+        </div>
+      </div>
+
+      <!-- DETAIL PANEL (shows when clicking a row) - full focus view -->
+      <div id="detailPanelWrap" style="margin-top:12px;">
+        <button id="persistentBack" class="backBtn" style="display:none;margin-bottom:8px">← Back to leaderboard</button>
+        <div id="detailPanel" style="display:none;">
+          <!-- filled dynamically -->
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <script>
+    // The user view intentionally mirrors the admin logic but omits admin controls (reset etc.)
+    const rowsEl = document.getElementById('rows');
+    const refreshBtn = document.getElementById('refresh');
+    const gameSelect = document.getElementById('gameSelect');
+    const searchInput = document.getElementById('search');
+    const modeSelect = document.getElementById('modeSelect');
+    const brawlModeSelect = document.getElementById('brawlModeSelect');
+
+    let gamesCache = [];
+    let currentList = [];
+    let currentWinner = null;
+      function isBossGame(game){
+        if(!game) return false;
+        // if server-provided metadata includes winner or id containing boss hints
+        try{
+          const w = String(game.winner||'').toLowerCase();
+          const id = String(game.id||'').toLowerCase();
+          if(w && (w.includes('boss') || w.includes('super') || w.includes('superbubble') || w.includes('bossimg'))) return true;
+          if(id && (id.includes('boss') || id.includes('super') || id.includes('superbubble'))) return true;
+        }catch(e){}
+        // if full players map present, fall back to player-key heuristic
+        if(game.players){
+          const keys = Object.keys(game.players||{}).map(k=>String(k).toLowerCase());
+          return keys.some(k=> k.includes('boss') || k.includes('super') || k.includes('superbubble') || k.includes('bossimg'));
+        }
+        return false;
+      }
+
+    function showTopPlayer(p){
+      const wrap = document.getElementById('topPlayer');
+      if(!p){ wrap.innerHTML = ''; return; }
+      const raw = String(p.player||'');
+      const name = raw.replace(/^https?:\/\/[^\/]+\//,'').replace(/^\/+/, '').split('/').pop()||raw;
+      const kills = p.kills||0; const hits = p.hits||0; const wins = p.wins||0;
+      const points = (kills*5) + (hits*3) + (wins*10);
+      const maxAll = Math.max(1, kills, hits, wins, points);
+      wrap.innerHTML = `
+        <div class="card" style="display:flex;gap:12px;align-items:center;padding:12px;">
+          <div style="width:84px;height:84px;border-radius:50%;background:linear-gradient(135deg,#7c3aed,#0ea5e9);display:flex;align-items:center;justify-content:center;font-weight:800;font-size:26px;color:#fff;box-shadow:0 8px 30px rgba(0,0,0,0.45);transform:translateZ(20px);">
+            ${(name||'P').slice(0,2).toUpperCase()}
+          </div>
+          <div style="flex:1;"> 
+            <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px"><div style="font-weight:800">${name}</div><div class="muted">Top Player</div></div>
+            <div style="display:flex;gap:10px;align-items:center">
+              <div style="flex:1">
+                <div class="muted" style="font-size:12px">Kills</div>
+                <div class="statBar" data-val="${kills}" style="--pct:${Math.round((kills/maxAll)*100)}%"></div>
+              </div>
+              <div style="flex:1">
+                <div class="muted" style="font-size:12px">Hits</div>
+                <div class="statBar" data-val="${hits}" style="--pct:${Math.round((hits/maxAll)*100)}%"></div>
+              </div>
+              <div style="flex:0 0 90px;text-align:right">
+                <div class="muted" style="font-size:12px">Wins</div>
+                <div style="font-weight:700">${wins}</div>
+              </div>
+              <div style="flex:0 0 100px;text-align:right">
+                <div class="muted" style="font-size:12px">Points</div>
+                <div style="font-weight:700">${points}</div>
+              </div>
+            </div>
+          </div>
+        </div>
+      `;
+      // trigger CSS animation by forcing layout then setting width via inline style
+      requestAnimationFrame(()=>{
+        const bars = wrap.querySelectorAll('.statBar');
+        bars.forEach(b=>{ const pct = b.getAttribute('style')?.match(/--pct:(\d+)%/)?.[1]||'0'; b.style.width = pct + '%'; });
+      });
+    }
+
+    // Normal arena rows (players)
+    function showRows(data, winner){
+      // Ensure header is visible for normal mode
+      const hdr = document.querySelector('.row.header'); 
+      if(hdr) hdr.style.display = 'grid';
+      
+      // Apply search filter
+      const q = (searchInput.value || '').toLowerCase().trim();
+      const filtered = (data || []).filter(r => !q || (String(r.player||'').toLowerCase().includes(q)));
+      
+      if (filtered.length === 0) {
+        rowsEl.innerHTML = '<div class="row"><div class="muted" style="grid-column:1/-1;padding:12px">No data yet.</div></div>';
+        return;
+      }
+      
+      // Calculate points and sort
+      filtered.forEach(r => { 
+        r._points = ((r.kills||0)*5 + (r.hits||0)*3 + (r.wins||0)*10); 
+      });
+      filtered.sort((a,b) => b._points - a._points || (b.kills||0) - (a.kills||0));
+      
+      // Normalize winner name for comparison
+      const winnerName = winner ? String(winner).replace(/^https?:\/\/[^\/]+\//,'').replace(/^\/+/, '').split('/').pop() : null;
+      
+      // Build all rows HTML
+      const rowsHTML = [];
+      for(let i = 0; i < filtered.length; i++) {
+        const r = filtered[i];
+        const raw = String(r.player||'');
+        const player = raw.replace(/^https?:\/\/[^\/]+\//,'').replace(/^\/+/, '').split('/').pop() || raw;
+        const kills = r.kills || 0;
+        const hits = r.hits || 0;
+        const wins = r.wins || 0;
+        const games = r.games || 0;
+        const points = r._points || ((kills*5) + (hits*3) + (wins*10));
+        const isWinner = winnerName && player === winnerName;
+        
+        // Store complete player data in data attribute
+        const playerData = JSON.stringify({
+          player: r.player,
+          kills: kills,
+          hits: hits,
+          wins: wins,
+          games: games,
+          _points: points
+        });
+        
+        const winnerClass = isWinner ? ' winner' : '';
+        const rowHTML = `<div class="row player-row${winnerClass}" data-player="${encodeURIComponent(playerData)}">` +
+          `<div style="width:48px">${i+1}</div>` +
+          `<div class="player" title="${raw}">${player}</div>` +
+          `<div style="text-align:right">${kills}</div>` +
+          `<div style="text-align:right">${hits}</div>` +
+          `<div style="text-align:right">${wins}</div>` +
+          `<div style="text-align:right">${games}</div>` +
+          `<div style="text-align:right">${points}</div>` +
+          `</div>`;
+        
+        rowsHTML.push(rowHTML);
+      }
+      
+      // Set innerHTML once with all rows
+      rowsEl.innerHTML = rowsHTML.join('');
+    }
+
+    // Boss arena: show list of games (one row per game)
+    function showBossGameList(games){
+      // hide top player card in boss mode
+      const tp = document.getElementById('topPlayer'); if(tp) tp.innerHTML = '';
+      // filter only boss games
+      const bossGames = (games||[]).filter(isBossGame);
+      if(!bossGames || bossGames.length===0){
+        rowsEl.innerHTML = '<div class="row"><div class="muted" style="grid-column:1/-1;padding:12px">No boss games yet.</div></div>';
+        return;
+      }
+      // hide header for boss mode
+      const hdr = document.querySelector('.row.header'); if(hdr) hdr.style.display = 'none';
+      // show simple rows: index + label (Game 1, Game 2...)
+      rowsEl.innerHTML = bossGames.map((g,i)=>{
+        const dt = g.createdAt?new Date(g.createdAt).toLocaleString():g.id;
+        const label = `Game ${i+1} — ${dt}` + (g.winner?` — Winner: ${String(g.winner).split('/').pop()}`:'');
+        return `<div class="row boss-row" data-game="${g.id}" style="cursor:pointer"><div style="width:48px">${i+1}</div><div class="player" style="grid-column:2 / -1">${label}</div></div>`;
+      }).join('');
+      // attach handlers: load per-game entries from server (boss store) when clicked
+      const els = rowsEl.querySelectorAll('.boss-row');
+      els.forEach(el=>{ el.addEventListener('click', ()=>{ const gid = el.getAttribute('data-game'); const meta = bossGames.find(x=>x.id===gid); if(gid) loadBossGameDetail(gid, meta); }); });
+    }
+
+    // Show boss game detail: left = boss image + stats (hits,kills,wins,points), right = list of normal images (hits only)
+    async function loadBossGameDetail(gameId, meta){
+      try{
+        const url = `/api/stats/game-detail?game=${encodeURIComponent(gameId)}&arena=boss`;
+        const res = await fetch(url);
+        if(!res.ok) throw new Error('failed');
+        const gameData = await res.json();
+        
+        // Convert to gameObj format expected by renderer
+        const gameObj = {
+          id: gameId, 
+          players: gameData.players || {}, 
+          superbubble: gameData.superbubble || null,
+          winner: gameData.winner || null,
+          createdAt: gameData.createdAt || null
+        };
+        renderBossGameDetail(gameObj);
+      }catch(e){
+        console.error('Failed to load boss game detail', e);
+        const panel = document.getElementById('detailPanel');
+        if(panel) panel.innerHTML = '<div class="muted" style="padding:12px">Failed to load game details</div>';
+      }
+    }
+
+    function renderBossGameDetail(gameObj){
+      const panel = document.getElementById('detailPanel');
+      const listView = document.getElementById('listView');
+      if(listView) listView.style.display = 'none';
+      panel.style.display = 'block';
+      const persistentBackBtn = document.getElementById('persistentBack');
+      if(persistentBackBtn) persistentBackBtn.style.display = 'inline-block';
+
+      const players = gameObj.players || {};
+      const superbubble = gameObj.superbubble || { hits: 0 };
+      
+      // Build list of normal players (exclude 'superbubble' key)
+      const normalKeys = Object.keys(players)
+        .filter(k => k !== 'superbubble')
+        .map(k => ({ key: k, hits: players[k].hits || 0 }));
+
+      // Determine winner - check if superbubble has winner field, or use currentWinner
+      const winner = gameObj.winner || currentWinner;
+      const winnerName = winner ? String(winner).replace(/^https?:\/\/[^\/]+\//,'').replace(/^\/+/, '').split('/').pop() : null;
+      const winnerFull = winner ? String(winner).toLowerCase() : '';
+      
+      // Detect if superbubble or team won
+      let superbubbleWon = false;
+      let teamWon = false;
+      let isDraw = false;
+      if(winnerName) {
+        // Check for draw
+        if(winnerName.toLowerCase() === 'draw') {
+          isDraw = true;
+        }
+        // Check if winner is superbubble (either exact match or contains superbubble in name/path)
+        else {
+          const winnerLower = winnerName.toLowerCase();
+          if(winnerLower === 'superbubble' || 
+             winnerLower.includes('superbubble') ||
+             winnerFull.includes('superbubble') || 
+             winnerFull.includes('superbubbleimg') || 
+             winnerFull.includes('superimgstorage')) {
+            superbubbleWon = true;
+          } else if(winnerLower === 'team') {
+            teamWon = true;
+          }
+        }
+      }
+
+      let winnerText = '';
+      let winnerColor = '#10b981'; // Default green for team win
+      if(isDraw) {
+        winnerText = '🤝 Draw!';
+        winnerColor = '#f59e0b'; // Orange for draw
+      } else if(superbubbleWon) {
+        winnerText = '🏆 Final Boss ☠️ Wins!';
+        winnerColor = '#7c3aed'; // Purple for superbubble win
+      } else if(teamWon) {
+        winnerText = '🏆 Players Win!';
+        winnerColor = '#10b981'; // Green for team win
+      }
+
+      panel.innerHTML = `
+        <div class="detailFull" style="display:flex;flex-direction:column;gap:24px;padding:16px;width:100%">
+          ${winnerText ? `<div style="text-align:center;padding:8px 16px;background:linear-gradient(90deg, rgba(${superbubbleWon ? '124,58,237' : '16,185,129'},0.2), rgba(${superbubbleWon ? '124,58,237' : '16,185,129'},0.1));border-radius:10px;border:2px solid ${winnerColor};margin:0 0 12px 0;line-height:1.2;min-height:40px;display:flex;align-items:center;justify-content:center">
+            <div style="font-size:22px;font-weight:900;color:${winnerColor};text-shadow:0 0 10px rgba(${superbubbleWon ? '124,58,237' : '16,185,129'},0.5)">${winnerText}</div>
+          </div>` : ''}
+          
+<div style="display:flex;flex-direction:row;gap:20px;align-items:flex-start;justify-content:center;width:100%;flex-wrap:wrap">            <!-- LEFT: Team (Normal Bubbles) -->
+            <div style="display:flex;flex-direction:row;gap:15px;align-items:flex-end;flex-wrap:nowrap;min-width:0">
+              ${normalKeys.length === 0 ? '<div class="muted">No team</div>' : normalKeys.map(n => {
+                const originalName = n.key.replace(/^https?:\/\/[^\/]+\//,'').split('/').pop();
+                const nName = originalName.replace(/\.(png|jpg|jpeg|gif|bmp|webp|svg)$/i, '');
+                const isTeamWinner = teamWon;
+                const winnerClass = isTeamWinner ? 'winner-highlight' : '';
+                return `
+                  <div style="flex:0 0 auto;text-align:center">
+                    <div class="${winnerClass}" style="width:120px;height:120px;border-radius:10px;overflow:hidden;background:#1f1f2e;margin-bottom:8px;border:2px solid #0ea5e9;flex-shrink:0;position:relative">
+                      <img src="/api/leaderboardimgs/${encodeURIComponent(nName)}" alt="${nName}" style="width:100%;height:100%;object-fit:cover" onerror="this.src='data:image/svg+xml;utf8,<svg xmlns=%27http://www.w3.org/2000/svg%27 width=%27120%27 height=%27120%27><rect width=%27100%25%27 height=%27100%25%27 fill=%27%230ea5e9%27/><text x=%2750%25%27 y=%2750%25%27 dominant-baseline=%27middle%27 text-anchor=%27middle%27 font-size=%2740%27 fill=%27white%27>${encodeURIComponent(nName.slice(0,2).toUpperCase())}</text></svg>'">
+                    </div>
+                    <div style="font-weight:700;font-size:11px;margin-bottom:4px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;width:120px">${nName}</div>
+                    <div style="font-weight:700;font-size:16px;color:#10b981">${n.hits}</div>
+                  </div>
+                `;
+              }).join('')}
+            </div>
+
+            <!-- MIDDLE: VS Symbol -->
+            <div style="flex:0 0 auto;text-align:center;padding:0 15px">
+              <div style="font-weight:900;font-size:42px;color:rgba(255,255,255,0.5)">VS</div>
+            </div>
+
+            <!-- RIGHT: Superbubble Boss -->
+            <div style="flex:0 0 auto;text-align:center">
+              <div class="${superbubbleWon ? 'winner-highlight' : ''}" style="width:160px;height:160px;border-radius:12px;overflow:hidden;background:#1f1f2e;margin-bottom:10px;border:3px solid #7c3aed;flex-shrink:0;position:relative">
+                <img src="${superbubble && superbubble.image ? '/api/superimgstorage/' + encodeURIComponent(superbubble.image) : '/api/superbubbleimg/placeholder'}" alt="superbubble" style="width:100%;height:100%;object-fit:cover" onerror="this.src='data:image/svg+xml;utf8,<svg xmlns=%27http://www.w3.org/2000/svg%27 width=%27160%27 height=%27160%27><rect width=%27100%25%27 height=%27100%25%27 fill=%27%237c3aed%27/><text x=%2750%25%27 y=%2750%25%27 dominant-baseline=%27middle%27 text-anchor=%27middle%27 font-size=%2760%27 fill=%27white%27>⭐</text></svg>'">
+              </div>
+              <div style="font-weight:800;font-size:14px;margin-bottom:6px">Final Boss ☠️</div>
+              <div style="font-weight:700;font-size:24px;color:#0ea5e9">${superbubble.hits || 0}</div>
+              <div class="muted" style="font-size:11px;margin-top:3px">🌟 BOSS</div>
+            </div>
+          </div>
+        </div>
+      `;
+    }
+
+    // Load brawl game detail: show players with images like boss mode
+    async function loadBrawlGameDetail(gameId, meta){
+      try{
+        const url = `/api/stats/game-detail?game=${encodeURIComponent(gameId)}&arena=brawl`;
+        const res = await fetch(url);
+        if(!res.ok) throw new Error('failed');
+        const gameData = await res.json();
+        
+        // Convert to gameObj format expected by renderer
+        const gameObj = {
+          id: gameId, 
+          players: gameData.players || {}, 
+          winner: gameData.winner || null,
+          createdAt: gameData.createdAt || null,
+          brawlMode: gameData.brawlMode || (meta && meta.brawlMode ? meta.brawlMode : null),
+          soloPlayer: gameData.soloPlayer || null
+        };
+        renderBrawlGameDetail(gameObj);
+      }catch(e){
+        console.error('Failed to load brawl game detail', e);
+        const panel = document.getElementById('detailPanel');
+        if(panel) panel.innerHTML = '<div class="muted" style="padding:12px">Failed to load game details</div>';
+      }
+    }
+
+    function renderBrawlGameDetail(gameObj){
+      const panel = document.getElementById('detailPanel');
+      const listView = document.getElementById('listView');
+      if(listView) listView.style.display = 'none';
+      panel.style.display = 'block';
+      const persistentBackBtn = document.getElementById('persistentBack');
+      if(persistentBackBtn) persistentBackBtn.style.display = 'inline-block';
+
+      const players = gameObj.players || {};
+      const brawlMode = gameObj.brawlMode || '1v1';
+      const soloPlayer = gameObj.soloPlayer || null;
+      
+      // Build list of all players
+      const playerKeys = Object.keys(players)
+        .map(k => ({ key: k, hits: players[k].hits || 0, kills: players[k].kills || 0 }));
+
+      // Determine winner
+      const winner = gameObj.winner || currentWinner;
+      const winnerName = winner ? String(winner).replace(/^https?:\/\/[^\/]+\//,'').replace(/^\/+/, '').split('/').pop() : null;
+      
+      // Determine winner text based on mode
+      let winnerText = '';
+      let winnerColor = '#10b981';
+      let isDraw = winnerName && winnerName.toLowerCase() === 'draw';
+      
+      if (isDraw) {
+        winnerText = '🤝 Draw!';
+        winnerColor = '#f59e0b'; // Orange for draw
+      } else if (brawlMode === '1v1') {
+        // For 1v1: show winner player name
+        if(winnerName) {
+          winnerText = `🏆 ${winnerName} Wins!`;
+        }
+      } else if (brawlMode === '1vMany') {
+        // For 1vMany: show team color
+        if(winnerName) {
+          if(winnerName.toLowerCase() === 'team') {
+            // Team won - check if it's solo or many team that won
+            // We'll assume if 'team' wins in 1vMany, it's the many team (red)
+            winnerText = '🏆 Team Red Wins!';
+            winnerColor = '#ef4444';
+          } else {
+            // Individual player won - solo team (green)
+            winnerText = '🏆 Team Green Wins!';
+            winnerColor = '#10b981';
+          }
+        }
+      }
+      // For 1vMany mode, separate solo and many teams
+      if (brawlMode === '1vMany' && soloPlayer) {
+        const soloPlayerData = playerKeys.find(p => p.key === soloPlayer);
+        const manyPlayers = playerKeys.filter(p => p.key !== soloPlayer);
+        const isSoloWinner = winnerName && winnerName !== 'team';
+        const isManyWinner = winnerName && winnerName.toLowerCase() === 'team';
+
+        panel.innerHTML = `
+          <div class="detailFull" style="display:flex;flex-direction:column;gap:24px;padding:16px;width:100%">
+            ${winnerText ? `<div style="text-align:center;padding:8px 16px;background:linear-gradient(90deg, rgba(${winnerColor === '#10b981' ? '16,185,129' : '239,68,68'},0.2), rgba(${winnerColor === '#10b981' ? '16,185,129' : '239,68,68'},0.1));border-radius:10px;border:2px solid ${winnerColor};margin:0 0 12px 0;line-height:1.2;min-height:40px;display:flex;align-items:center;justify-content:center">
+              <div style="font-size:22px;font-weight:900;color:${winnerColor};text-shadow:0 0 10px rgba(${winnerColor === '#10b981' ? '16,185,129' : '239,68,68'},0.5)">${winnerText}</div>
+            </div>` : ''}
+            
+            <div style="display:flex;flex-direction:row;gap:20px;align-items:center;justify-content:center;width:100%;flex-wrap:wrap">
+              <!-- LEFT: Solo Player (Team Green) -->
+              <div style="flex:0 0 auto;text-align:center">
+                ${soloPlayerData ? `
+                  <div class="${isSoloWinner ? 'winner-highlight' : ''}" style="width:140px;height:140px;border-radius:10px;overflow:hidden;background:#1f1f2e;margin-bottom:8px;border:3px solid #10b981;flex-shrink:0">
+                    <img src="/api/brawlimgs/${encodeURIComponent(soloPlayerData.key.split('/').pop().replace(/\.(png|jpg|jpeg|gif|bmp|webp|svg)$/i, ''))}" alt="${soloPlayerData.key.split('/').pop().replace(/\.(png|jpg|jpeg|gif|bmp|webp|svg)$/i, '')}" style="width:100%;height:100%;object-fit:cover;display:block" onerror="this.style.display=%27none%27;this.parentElement.innerHTML=%27<div style=%22width:100%;height:100%;display:flex;align-items:center;justify-content:center;background:linear-gradient(135deg,#10b981,#0ea5e9);font-size:50px;font-weight:800;color:white%22>${soloPlayerData.key.split('/').pop().replace(/\.(png|jpg|jpeg|gif|bmp|webp|svg)$/i, '').slice(0,2).toUpperCase()}</div>%27;">
+                  </div>
+                  <div style="font-weight:800;font-size:12px;margin-bottom:4px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;width:140px">${soloPlayerData.key.split('/').pop().replace(/\.(png|jpg|jpeg|gif|bmp|webp|svg)$/i, '')}</div>
+                  <div style="display:flex;gap:8px;justify-content:center;align-items:center">
+                    <div style="font-weight:700;font-size:14px;color:#ef4444">K: ${soloPlayerData.kills}</div>
+                    <div style="font-weight:700;font-size:14px;color:#10b981">H: ${soloPlayerData.hits}</div>
+                  </div>
+                  <div style="font-weight:600;font-size:11px;color:#10b981;margin-top:4px">Team Green</div>
+                ` : '<div class="muted">No solo player</div>'}
+              </div>
+
+              <!-- MIDDLE: VS Symbol -->
+              <div style="flex:0 0 auto;text-align:center;padding:0 15px">
+                <div style="font-weight:900;font-size:42px;color:rgba(255,255,255,0.5)">VS</div>
+              </div>
+
+              <!-- RIGHT: Many Team Players (Team Red) -->
+              <div style="flex:0 0 auto;display:flex;flex-direction:row;gap:12px;flex-wrap:wrap;max-width:500px;justify-content:center">
+                ${manyPlayers.length === 0 ? '<div class="muted">No many team</div>' : manyPlayers.map(p => {
+                  const originalName = p.key.replace(/^https?:\/\/[^\/]+\//,'').split('/').pop();
+                  const pName = originalName.replace(/\.(png|jpg|jpeg|gif|bmp|webp|svg)$/i, '');
+                  const winnerClass = isManyWinner ? 'winner-highlight' : '';
+                  return `
+                    <div style="flex:0 0 auto;text-align:center">
+                      <div class="${winnerClass}" style="width:110px;height:110px;border-radius:10px;overflow:hidden;background:#1f1f2e;margin-bottom:8px;border:2px solid #ef4444;flex-shrink:0">
+                        <img src="/api/brawlimgs/${encodeURIComponent(pName)}" alt="${pName}" style="width:100%;height:100%;object-fit:cover;display:block" onerror="this.style.display=%27none%27;this.parentElement.innerHTML=%27<div style=%22width:100%;height:100%;display:flex;align-items:center;justify-content:center;background:linear-gradient(135deg,#ef4444,#f97316);font-size:40px;font-weight:800;color:white%22>${pName.slice(0,2).toUpperCase()}</div>%27;">
+                      </div>
+                      <div style="font-weight:700;font-size:11px;margin-bottom:4px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;width:110px">${pName}</div>
+                      <div style="display:flex;gap:6px;justify-content:center;align-items:center">
+                        <div style="font-weight:700;font-size:13px;color:#ef4444">K: ${p.kills}</div>
+                        <div style="font-weight:700;font-size:13px;color:#10b981">H: ${p.hits}</div>
+                      </div>
+                    </div>
+                  `;
+                }).join('')}
+                ${manyPlayers.length > 0 ? '<div style="width:100%;text-align:center;font-weight:600;font-size:11px;color:#ef4444;margin-top:8px">Team Red</div>' : ''}
+              </div>
+            </div>
+          </div>
+        `;
+      } else {
+        // 1v1 mode or fallback: show players with VS in the middle
+        const player1 = playerKeys[0];
+        const player2 = playerKeys[1];
+        
+        panel.innerHTML = `
+        <div class="detailFull" style="display:flex;flex-direction:column;gap:24px;padding:16px;width:100%">
+          ${winnerText ? `<div style="text-align:center;padding:8px 16px;background:linear-gradient(90deg, rgba(${winnerColor === '#10b981' ? '16,185,129' : isDraw ? '245,158,11' : '239,68,68'},0.2), rgba(${winnerColor === '#10b981' ? '16,185,129' : isDraw ? '245,158,11' : '239,68,68'},0.1));border-radius:10px;border:2px solid ${winnerColor};margin:0 0 12px 0;line-height:1.2;min-height:40px;display:flex;align-items:center;justify-content:center">
+            <div style="font-size:22px;font-weight:900;color:${winnerColor};text-shadow:0 0 10px rgba(${winnerColor === '#10b981' ? '16,185,129' : isDraw ? '245,158,11' : '239,68,68'},0.5)">${winnerText}</div>
+          </div>` : ''}
+          
+          <div style="display:flex;flex-direction:row;gap:20px;align-items:center;justify-content:center;width:100%;">
+            ${playerKeys.length === 0 ? '<div class="muted">No players</div>' : ''}
+            ${player1 ? (() => {
+              const originalName = player1.key.replace(/^https?:\/\/[^\/]+\//,'').split('/').pop();
+              const pName = originalName.replace(/\.(png|jpg|jpeg|gif|bmp|webp|svg)$/i, '');
+              const isWinner = winnerName && pName === winnerName;
+              const winnerClass = isWinner ? 'winner-highlight' : '';
+              const initials = pName.slice(0,2).toUpperCase();
+              return `
+                <div style="flex:0 0 auto;text-align:center">
+                  <div class="${winnerClass}" style="width:140px;height:140px;border-radius:10px;overflow:hidden;background:#1f1f2e;margin-bottom:8px;border:2px solid #0ea5e9;flex-shrink:0">
+                    <img src="/api/brawlimgs/${encodeURIComponent(pName)}" alt="${pName}" style="width:100%;height:100%;object-fit:cover;display:block" onerror="this.style.display='none';this.parentElement.innerHTML='<div style=%27width:100%;height:100%;display:flex;align-items:center;justify-content:center;background:linear-gradient(135deg,#0ea5e9,#7c3aed);font-size:50px;font-weight:800;color:white%27>${initials}</div>';">
+                  </div>
+                  <div style="font-weight:800;font-size:12px;margin-bottom:4px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;width:140px">${pName}</div>
+                  <div style="display:flex;gap:8px;justify-content:center;align-items:center">
+                    <div style="font-weight:700;font-size:14px;color:#ef4444">K: ${player1.kills}</div>
+                    <div style="font-weight:700;font-size:14px;color:#10b981">H: ${player1.hits}</div>
+                  </div>
+                </div>
+              `;
+            })() : ''}
+            
+            ${playerKeys.length >= 2 ? '<div style="flex:0 0 auto;text-align:center;padding:0 15px"><div style="font-weight:900;font-size:42px;color:rgba(255,255,255,0.5)">VS</div></div>' : ''}
+            
+            ${player2 ? (() => {
+              const originalName = player2.key.replace(/^https?:\/\/[^\/]+\//,'').split('/').pop();
+              const pName = originalName.replace(/\.(png|jpg|jpeg|gif|bmp|webp|svg)$/i, '');
+              const isWinner = winnerName && pName === winnerName;
+              const winnerClass = isWinner ? 'winner-highlight' : '';
+              const initials = pName.slice(0,2).toUpperCase();
+              return `
+                <div style="flex:0 0 auto;text-align:center">
+                  <div class="${winnerClass}" style="width:140px;height:140px;border-radius:10px;overflow:hidden;background:#1f1f2e;margin-bottom:8px;border:2px solid #0ea5e9;flex-shrink:0">
+                    <img src="/api/brawlimgs/${encodeURIComponent(pName)}" alt="${pName}" style="width:100%;height:100%;object-fit:cover;display:block" onerror="this.style.display='none';this.parentElement.innerHTML='<div style=%27width:100%;height:100%;display:flex;align-items:center;justify-content:center;background:linear-gradient(135deg,#0ea5e9,#7c3aed);font-size:50px;font-weight:800;color:white%27>${initials}</div>';">
+                  </div>
+                  <div style="font-weight:800;font-size:12px;margin-bottom:4px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;width:140px">${pName}</div>
+                  <div style="display:flex;gap:8px;justify-content:center;align-items:center">
+                    <div style="font-weight:700;font-size:14px;color:#ef4444">K: ${player2.kills}</div>
+                    <div style="font-weight:700;font-size:14px;color:#10b981">H: ${player2.hits}</div>
+                  </div>
+                </div>
+              `;
+            })() : ''}
+          </div>
+        </div>
+      `;
+      }
+    }
+
+    async function fetchGames(mode='normal'){
+      try{
+        let arenaQ = '?arena=normal';
+        if (mode === 'boss') arenaQ = '?arena=boss';
+        else if (mode === 'brawl') arenaQ = '?arena=brawl';
+        
+        const res = await fetch('/api/stats/games' + arenaQ);
+        const data = await res.json();
+        
+        // For brawl mode, filter by selected brawlMode if applicable
+        if (mode === 'brawl' && brawlModeSelect && brawlModeSelect.value) {
+          const selectedBrawlMode = brawlModeSelect.value;
+          gamesCache = (data || []).filter(g => g.brawlMode === selectedBrawlMode);
+        } else {
+          gamesCache = data || [];
+        }
+        
+        populateSelect(mode);
+      }catch(e){console.error(e)}
+    }
+
+      function populateSelect(mode='normal'){
+        const sel = document.getElementById('gameSelect');
+        if(!gamesCache) return;
+        // gamesCache is loaded per-mode by fetchGames(mode) so just use it directly
+        const list = gamesCache.slice();
+        sel.innerHTML = '<option value="combined">All</option>' + list.map((g, index)=>{
+          return `<option value="${g.id}">Game ${index + 1}</option>`;
+        }).join('');
+      }
+
+    async function fetchStatsFor(selection){
+      try{
+        // Mode-aware fetching
+        const mode = (modeSelect && modeSelect.value) || 'normal';
+        if(mode === 'boss'){
+          // In boss mode: if a specific game is selected, show detailed game view with images
+          if(selection && selection !== 'combined') {
+            const meta = gamesCache.find(x => x.id === selection);
+            loadBossGameDetail(selection, meta);
+            return;
+          }
+          // Otherwise show aggregated stats list
+          let url = '/api/stats?arena=boss';
+          const res = await fetch(url);
+          if(!res.ok) throw new Error('network');
+          const data = await res.json();
+          currentList = data || [];
+          showBossStatsAsList(currentList);
+          return;
+        }
+        // brawl mode - fetch stats with arena=brawl and optional brawlMode filter
+        if(mode === 'brawl'){
+          // If a specific game is selected, show detailed game view
+          if(selection && selection !== 'combined') {
+            const meta = gamesCache.find(x => x.id === selection);
+            loadBrawlGameDetail(selection, meta);
+            return;
+          }
+          // Otherwise show aggregated stats list
+          let url = '/api/stats?arena=brawl';
+          if (brawlModeSelect.value) {
+            url += `&brawlMode=${encodeURIComponent(brawlModeSelect.value)}`;
+          }
+          const res = await fetch(url);
+          if(!res.ok) throw new Error('network');
+          const data = await res.json();
+          const list = (data||[]).map(r=>({ ...r, _points: ((r.kills||0)*5 + (r.hits||0)*3 + (r.wins||0)*10) }));
+          list.sort((a,b)=>b._points - a._points || (b.kills||0)-(a.kills||0));
+          currentList = list;
+          currentWinner = null;
+          showRows(currentList, currentWinner);
+          return;
+        }
+        // normal mode - fetch all stats with arena=normal
+        let url = '/api/stats?arena=normal';
+        if(selection && selection!=='combined') url = `/api/stats?game=${encodeURIComponent(selection)}&arena=normal`;
+        const res = await fetch(url);
+        if(!res.ok) throw new Error('network');
+        const data = await res.json();
+        // compute points per player and sort by points desc
+        const list = (data||[]).map(r=>({ ...r, _points: ((r.kills||0)*5 + (r.hits||0)*3 + (r.wins||0)*10) }));
+        list.sort((a,b)=>b._points - a._points || (b.kills||0)-(a.kills||0));
+        currentList = list;
+        // Get winner for this game if game-specific
+        if(selection && selection!=='combined'){
+          const gameMeta = gamesCache.find(g => g.id === selection);
+          currentWinner = gameMeta ? gameMeta.winner : null;
+        } else {
+          currentWinner = null;
+        }
+        showRows(currentList, currentWinner);
+      }catch(e){
+        console.error(e);
+        rowsEl.innerHTML = '<div class="row"><div class="muted" style="grid-column:1/-1;padding:12px">Failed to load leaderboard</div></div>';
+      }
+    }
+
+    // Show boss stats as a list (like admin leaderboard)
+    function showBossStatsAsList(data) {
+      const hdr = document.querySelector('.row.header');
+      if(hdr) {
+        hdr.style.display = 'grid';
+        hdr.innerHTML = '<div style="width:48px">#</div><div>Player</div><div style="text-align:right">Hits</div><div style="text-align:right">Games</div>';
+      }
+      const q = (searchInput.value || '').toLowerCase().trim();
+      const filtered = data.filter(r => !q || (String(r.player||'').toLowerCase().includes(q)));
+      if (!filtered || filtered.length === 0) {
+        rowsEl.innerHTML = '<div class="row"><div class="muted" style="grid-column:1/-1;padding:12px">No data yet.</div></div>';
+        return;
+      }
+      rowsEl.innerHTML = filtered.map((r, i) => {
+        const raw = String(r.player || '');
+        const player = raw.replace(/^https?:\/\/[^\/]+\//, '').replace(/^\/+/, '').split('/').pop() || raw;
+        const hits = r.hits || 0;
+        const games = r.games || 0;
+        // No click handler for boss mode - just display stats
+        return `<div class="row"><div style="width:48px">${i+1}</div><div class="player" title="${r.player}">${player}</div><div style="text-align:right">${hits}</div><div style="text-align:right">${games}</div></div>`;
+      }).join('');
+    }
+    
+    // Function to try next image source when current fails
+    function tryNextImageSource(img, fallbackSvg) {
+      const folders = JSON.parse(img.getAttribute('data-folders') || '[]');
+      const extensions = JSON.parse(img.getAttribute('data-extensions') || '[]');
+      const baseName = decodeURIComponent(img.getAttribute('data-base') || '');
+      let folderIdx = parseInt(img.getAttribute('data-folder-idx') || '0');
+      let extIdx = parseInt(img.getAttribute('data-ext-idx') || '0');
+      
+      // Try next extension
+      extIdx++;
+      if (extIdx >= extensions.length) {
+        extIdx = 0;
+        folderIdx++;
+      }
+      
+      if (folderIdx < folders.length) {
+        img.setAttribute('data-folder-idx', folderIdx);
+        img.setAttribute('data-ext-idx', extIdx);
+        img.src = folders[folderIdx] + encodeURIComponent(baseName) + extensions[extIdx];
+      } else {
+        // All sources exhausted, use fallback
+        img.onerror = null;
+        img.src = fallbackSvg;
+      }
+    }
+    
+    // extend fetchStatsFor to update top player card when data loaded (only in normal mode)
+    const _origFetch = fetchStatsFor;
+    fetchStatsFor = async function(selection){
+      await _origFetch(selection);
+      const mode = (modeSelect && modeSelect.value) || 'normal';
+      if(mode === 'normal') {
+        showTopPlayer(currentList && currentList.length>0 ? currentList[0] : null);
+      } else {
+        // boss mode: hide top player card
+        const tp = document.getElementById('topPlayer');
+        if(tp) tp.innerHTML = '';
+      }
+    };
+
+    function showDetailPanel(p){
+      const panel = document.getElementById('detailPanel');
+      const listView = document.getElementById('listView');
+      if(!p){ hideDetailPanel(); return; }
+      // hide the list view to focus only on detail
+      if(listView) listView.style.display = 'none';
+      panel.style.display = 'block';
+      // show persistent back button if available
+      const persistentBackBtn = document.getElementById('persistentBack');
+      if(persistentBackBtn) persistentBackBtn.style.display = 'inline-block';
+      panel.innerHTML = '';
+      const raw = String(p.player||'');
+      const originalName = raw.replace(/^https?:\/\/[^\/]+\//,'').replace(/^\/+/, '').split('/').pop()||raw;
+      const name = originalName.replace(/\.(png|jpg|jpeg|gif|bmp|webp|svg)$/i, '');
+      const kills = p.kills||0, hits = p.hits||0, wins = p.wins||0;
+      const points = (kills*5) + (hits*3) + (wins*10);
+      const maxAll = Math.max(1, kills, hits, wins, points);
+      const initials = name.slice(0,2).toUpperCase();
+      const imgTag = `<img id="detailImg" src="/api/leaderboardimgs/${encodeURIComponent(name)}" alt="${name}" style="width:100%;height:100%;object-fit:cover;display:block" onerror="this.style.display='none';this.parentElement.innerHTML='<div style=\\'width:100%;height:100%;display:flex;align-items:center;justify-content:center;font-size:80px;font-weight:800;color:white\\'>${initials}</div>';">`;
+      panel.innerHTML = `
+        <div class="detailFull">
+          <div class="detailPanel" role="dialog" aria-label="Player details">
+            <div class="detailAvatar pulse">${imgTag}</div>
+            <div class="detailStats">
+              <h2>${name}</h2>
+              <div class="detailRow"><div class="detailLabel">Kills</div><div style="flex:1"><div class="statBar" data-val="${kills}" style="--pct:${Math.round((kills/maxAll)*100)}%"></div></div><div class="statValue" id="valKills">0</div></div>
+              <div class="detailRow"><div class="detailLabel">Hits</div><div style="flex:1"><div class="statBar" data-val="${hits}" style="--pct:${Math.round((hits/maxAll)*100)}%"></div></div><div class="statValue" id="valHits">0</div></div>
+              <div class="detailRow"><div class="detailLabel">Wins</div><div style="flex:1"><div class="statBar" data-val="${wins}" style="--pct:${Math.round((wins/maxAll)*100)}%"></div></div><div class="statValue" id="valWins">0</div></div>
+              <div class="detailRow"><div class="detailLabel">Points</div><div style="flex:1"><div class="statBar" data-val="${points}" style="--pct:${Math.round((points/maxAll)*100)}%"></div></div><div class="statValue" id="valPoints">0</div></div>
+            </div>
+          </div>
+        </div>
+      `;
+      // animate bars and count up numbers
+      requestAnimationFrame(()=>{
+        const bars = panel.querySelectorAll('.statBar');
+        bars.forEach(b=>{ const pct = b.getAttribute('style')?.match(/--pct:(\d+)%/)?.[1]||'0'; b.style.width = pct + '%'; });
+        animateCount(panel.querySelector('#valKills'), kills, 800);
+        animateCount(panel.querySelector('#valHits'), hits, 800);
+        animateCount(panel.querySelector('#valWins'), wins, 800);
+        animateCount(panel.querySelector('#valPoints'), points, 900);
+      });
+      // persistent back button is used instead of injecting a per-panel button
+      // allow ESC to go back — keep a reference on window so we can remove it cleanly
+      if(window._leaderboardEscHandler) document.removeEventListener('keydown', window._leaderboardEscHandler);
+      window._leaderboardEscHandler = (e)=>{ if(e.key === 'Escape') hideDetailPanel(); };
+      document.addEventListener('keydown', window._leaderboardEscHandler);
+    }
+
+    function hideDetailPanel(){
+      const panel = document.getElementById('detailPanel');
+      const listView = document.getElementById('listView');
+      if(panel) { panel.style.display='none'; panel.innerHTML=''; }
+      if(listView) listView.style.display='block';
+      const persistentBackBtn = document.getElementById('persistentBack');
+      if(persistentBackBtn) persistentBackBtn.style.display = 'none';
+      // remove ESC handler if present
+      if(window._leaderboardEscHandler){ document.removeEventListener('keydown', window._leaderboardEscHandler); window._leaderboardEscHandler = null; }
+      // re-render rows to ensure click handlers are active (mode-aware)
+      const mode = (modeSelect && modeSelect.value) || 'normal';
+      if(mode === 'boss'){
+        showBossStatsAsList(currentList);
+      } else {
+        showRows(currentList, currentWinner);
+      }
+    }
+
+    function animateCount(el, target, duration){
+      if(!el) return; const start = 0; const end = Number(target)||0; const startTime = performance.now();
+      const step = (now)=>{ const t = Math.min(1, (now - startTime)/duration); const eased = t<.5?2*t*t: -1 + (4-2*t)*t; const val = Math.round(start + (end - start)*eased); el.textContent = val; if(t < 1) requestAnimationFrame(step); };
+      requestAnimationFrame(step);
+    }
+
+    refreshBtn.addEventListener('click', ()=>{ 
+      const mode = (modeSelect && modeSelect.value) || 'normal';
+      fetchGames(mode).then(()=>fetchStatsFor(gameSelect.value||'combined')); 
+    });
+    gameSelect.addEventListener('change', ()=>fetchStatsFor(gameSelect.value||'combined'));
+    searchInput.addEventListener('input', ()=>{
+      const mode = (modeSelect && modeSelect.value) || 'normal';
+      if(mode === 'normal' || mode === 'brawl') showRows(currentList, currentWinner);
+      else showBossStatsAsList(currentList);
+    });
+    if(modeSelect){ modeSelect.addEventListener('change', ()=>{ 
+      const mode = modeSelect.value;
+      // Show/hide brawl mode selector
+      if (mode === 'brawl') {
+        brawlModeSelect.style.display = 'block';
+      } else {
+        brawlModeSelect.style.display = 'none';
+        brawlModeSelect.value = '';
+      }
+      fetchGames(mode).then(()=>fetchStatsFor('combined')); 
+    }); }
+    if(brawlModeSelect){ brawlModeSelect.addEventListener('change', ()=>{
+      const mode = (modeSelect && modeSelect.value) || 'normal';
+      fetchGames(mode).then(()=>fetchStatsFor('combined'));
+    }); }
+
+    (async()=>{ 
+      const mode = (modeSelect && modeSelect.value) || 'normal'; 
+      await fetchGames(mode); 
+      fetchStatsFor(gameSelect.value||'combined'); 
+    })();
+
+    // Persistent back button handler and delegated handler for dynamic back buttons
+    const persistentBack = document.getElementById('persistentBack');
+    if(persistentBack) persistentBack.addEventListener('click', hideDetailPanel);
+    document.addEventListener('click', (e)=>{
+      const back = e.target.closest && e.target.closest('.backBtn');
+      if(back) {
+        hideDetailPanel();
+      }
+    });
+
+    // Event delegation for player row clicks (normal mode only)
+    document.addEventListener('click', (e)=>{
+      const playerRow = e.target.closest('.player-row');
+      
+      if(playerRow) {
+        const playerData = playerRow.getAttribute('data-player');
+        if(playerData) {
+          try {
+            const playerObj = JSON.parse(decodeURIComponent(playerData));
+            showDetailPanel(playerObj);
+          } catch(err) {
+            console.error('Failed to parse player data', err);
+          }
+        }
+      }
+    }, true);
+  </script>
+</body>
+</html>

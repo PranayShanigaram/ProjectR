@@ -1,0 +1,298 @@
+/* Common Section Styles */
+.settingsSection {
+  background: rgba(255, 255, 255, 0.05);
+  border-radius: 8px;
+  margin-bottom: 8px;
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  overflow: hidden;
+}
+
+.sectionHeader {
+  padding: 12px;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  transition: background 0.2s;
+}
+
+.sectionHeader:hover {
+  background: rgba(255, 255, 255, 0.08);
+}
+
+.sectionContent {
+  padding: 0 12px 12px 12px;
+}
+
+.sectionTitle {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.sectionIcon {
+  font-size: 18px;
+}
+
+.sectionLabel {
+  color: #fff;
+  font-weight: 600;
+  font-size: 14px;
+}
+
+.sectionArrow {
+  color: #999;
+  font-size: 12px;
+}
+
+/* Input Styles */
+.sliderInput {
+  width: 100%;
+  cursor: pointer;
+}
+
+.numberInput {
+  width: 100%;
+  padding: 6px;
+  border-radius: 4px;
+  background: rgba(255, 255, 255, 0.1);
+  color: #fff;
+  border: 1px solid rgba(255, 255, 255, 0.2);
+  font-size: 13px;
+}
+
+.colorInput {
+  width: 100%;
+  height: 36px;
+  border: 1px solid rgba(255, 255, 255, 0.15);
+  border-radius: 6px;
+  cursor: pointer;
+  background: rgba(255, 255, 255, 0.05);
+}
+
+/* Label Styles */
+.controlLabel {
+  color: #ccc;
+  font-size: 13px;
+  display: block;
+  margin-bottom: 6px;
+}
+
+.labelValue {
+  color: #fff;
+  font-weight: 600;
+}
+
+.helpText {
+  color: #999;
+  font-size: 11px;
+  margin-top: 4px;
+}
+
+.helpTextSmall {
+  color: #999;
+  font-size: 10px;
+  margin-top: 4px;
+}
+
+/* Button Styles */
+.presetButton {
+  padding: 6px 8px;
+  font-size: 11px;
+  border: 1px solid rgba(255, 255, 255, 0.2);
+  border-radius: 4px;
+  color: #fff;
+  cursor: pointer;
+  background: rgba(255, 255, 255, 0.1);
+  transition: all 0.2s;
+}
+
+.presetButtonActive {
+  background: #4caf50;
+  border-color: #4caf50;
+  font-weight: 600;
+}
+
+.clearButton {
+  padding: 4px 8px;
+  font-size: 11px;
+  background: rgba(255, 68, 68, 0.2);
+  border: 1px solid rgba(255, 68, 68, 0.4);
+  border-radius: 4px;
+  color: #ff4444;
+  cursor: pointer;
+}
+
+/* Leaderboard Styles */
+.leaderboardContainer {
+  width: 100%;
+  padding: 8px;
+  box-sizing: border-box;
+  position: relative;
+}
+
+.leaderboardHeader {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-bottom: 8px;
+}
+
+.leaderboardHeaderIcon {
+  font-size: 16px;
+}
+
+.leaderboardTitle {
+  margin: 0;
+  color: #ddd;
+  font-size: 15px;
+}
+
+.leaderboardEntry {
+  display: flex;
+  gap: 10px;
+  align-items: center;
+  box-sizing: border-box;
+  padding-right: 6px;
+  margin-bottom: 8px;
+  padding: 8px;
+  background: rgba(255, 255, 255, 0.03);
+  border-radius: 6px;
+}
+
+.leaderboardEntryImage {
+  width: 32px;
+  height: 32px;
+  border-radius: 50%;
+  object-fit: cover;
+  flex-shrink: 0;
+}
+
+.leaderboardEntryName {
+  color: #fff;
+  font-size: 12px;
+  font-weight: 600;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  max-width: 120px;
+}
+
+.leaderboardEntryHealth {
+  font-size: 11px;
+}
+
+.healthGood {
+  color: #00ff00;
+}
+
+.healthMedium {
+  color: #ffff00;
+}
+
+.healthLow {
+  color: #ff0000;
+}
+
+/* Brawl Leaderboard - Vertical Layout */
+.brawlLeaderboardContainer {
+  width: 100%;
+  padding: 8px;
+  box-sizing: border-box;
+}
+
+.verticalBubbleDisplay {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 10px;
+  padding: 8px;
+  background: rgba(255, 255, 255, 0.03);
+  border-radius: 6px;
+  margin-bottom: 8px;
+}
+
+.bubbleImage {
+  width: 40px;
+  height: 40px;
+  border-radius: 50%;
+  object-fit: cover;
+}
+
+.bubbleInfo {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 2px;
+  text-align: center;
+}
+
+.bubbleName {
+  color: #fff;
+  font-size: 12px;
+  font-weight: 600;
+  word-break: break-word;
+  max-width: 80px;
+}
+
+.bubbleHealth {
+  font-size: 11px;
+  font-weight: 600;
+}
+
+.vsSeparator {
+  font-size: 22px;
+  font-weight: 700;
+  color: #ff9800;
+  margin: 4px 0;
+}
+
+/* Watermark */
+.watermark {
+  width: 48px;
+  height: 48px;
+  border-radius: 50%;
+  opacity: 0.28;
+  pointer-events: none;
+  user-select: none;
+}
+
+/* Tabs/Groups for Settings */
+.settingsGroup {
+  margin-bottom: 12px;
+}
+
+.settingsGroupLabel {
+  color: #aaa;
+  font-size: 12px;
+  font-weight: 600;
+  margin-bottom: 10px;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+}
+
+/* Grid layouts */
+.grid2Col {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: 8px;
+}
+
+.grid3Col {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 4px;
+}
+
+.gridItem {
+  background: rgba(0, 0, 0, 0.2);
+  padding: 6px 8px;
+  border-radius: 4px;
+}
+
+/* Divider */
+.divider {
+  margin: 12px 0;
+  padding-bottom: 12px;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+}

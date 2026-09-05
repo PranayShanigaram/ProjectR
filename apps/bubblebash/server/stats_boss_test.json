@@ -1,0 +1,56 @@
+{
+  "games": {
+    "game-1786209001252": {
+      "players": {
+        "dustindebbs": {
+          "hits": 7
+        },
+        "rizzroulette": {
+          "hits": 7
+        },
+        "superbubble": {
+          "hits": 9
+        },
+        "shoolin.10": {
+          "hits": 20
+        }
+      },
+      "createdAt": 1786209001267,
+      "gameIndex": "game-3",
+      "winner": "superbubble"
+    },
+    "game-1786210846886": {
+      "players": {
+        "dustindebbs": {
+          "hits": 1
+        },
+        "rizzroulette": {
+          "hits": 1
+        },
+        "superbubble": {
+          "hits": 7
+        },
+        "shoolin.10": {
+          "hits": 8
+        }
+      },
+      "createdAt": 1786210846894,
+      "gameIndex": "game-4",
+      "winner": "superbubble"
+    }
+  },
+  "totals": {
+    "dustindebbs": {
+      "hits": 8,
+      "games": 2
+    },
+    "rizzroulette": {
+      "hits": 8,
+      "games": 2
+    },
+    "shoolin.10": {
+      "hits": 28,
+      "games": 2
+    }
+  }
+}

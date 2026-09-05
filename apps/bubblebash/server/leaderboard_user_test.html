@@ -1,0 +1,133 @@
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>BubbleClash — Test Leaderboard</title>
+  <style>
+    :root{--bg1:#071029;--bg2:#0f172a;--accent:#ff6b00}
+    body{font-family:system-ui,-apple-system,Segoe UI,Roboto,"Helvetica Neue",Arial;background:linear-gradient(120deg,var(--bg1),var(--bg2));color:#fff;padding:28px;margin:0}
+    .wrap{max-width:1000px;margin:0 auto}
+    h1{font-size:24px;margin:0 0 18px 0;display:flex;align-items:center;gap:12px}
+    .testBadge{background:rgba(255,107,0,0.2);padding:4px 12px;border-radius:6px;font-size:14px;border:1px solid rgba(255,107,0,0.4)}
+    .controls{display:flex;gap:8px;margin-bottom:16px}
+    select{background:rgba(255,255,255,0.03);border:0;padding:10px;border-radius:8px;color:#fff;cursor:pointer}
+    .card{border-radius:12px;overflow:hidden;background:linear-gradient(180deg, rgba(255,255,255,0.02), rgba(255,255,255,0.01));box-shadow:0 10px 40px rgba(2,6,23,0.6)}
+    .row{display:grid;grid-template-columns:48px 1fr 90px 90px 80px;gap:8px;padding:12px 16px;align-items:center;border-bottom:1px solid rgba(255,255,255,0.02)}
+    .row.boss{grid-template-columns:48px 1fr 100px}
+    .row.header{font-weight:700;background:linear-gradient(90deg, rgba(255,255,255,0.02), rgba(255,255,255,0.01))}
+    .player{white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  </style>
+</head>
+<body>
+  <div class="wrap">
+    <h1>
+      Test Leaderboard
+      <span class="testBadge">🧪 TEST MODE</span>
+    </h1>
+    
+    <div class="controls">
+      <select id="arenaSelect">
+        <option value="normal">Normal Arena</option>
+        <option value="boss">Boss Arena</option>
+        <option value="brawl">Brawl Arena</option>
+      </select>
+      <select id="brawlModeSelect" style="display:none">
+        <option value="">All</option>
+        <option value="1v1">1v1</option>
+        <option value="1vMany">1vMany</option>
+      </select>
+    </div>
+
+    <div class="card" id="table">
+      <div class="row header" id="tableHeader">
+        <div>#</div>
+        <div>Player</div>
+        <div style="text-align:right">Kills</div>
+        <div style="text-align:right">Hits</div>
+        <div style="text-align:right">Wins</div>
+      </div>
+      <div id="rows"></div>
+    </div>
+  </div>
+
+  <script>
+    const rowsEl = document.getElementById('rows');
+    const arenaSelect = document.getElementById('arenaSelect');
+    const brawlModeSelect = document.getElementById('brawlModeSelect');
+    const tableHeader = document.getElementById('tableHeader');
+
+    function cleanPlayerName(name) {
+      return name.replace(/\.(png|jpg|jpeg|gif|bmp|webp|svg)$/i, '');
+    }
+
+    async function fetchStats() {
+      const arena = arenaSelect.value;
+      const brawlMode = brawlModeSelect.value || '';
+      
+      let url = `/api/stats/test?arena=${arena}`;
+      if (arena === 'brawl' && brawlMode) {
+        url += `&brawlMode=${brawlMode}`;
+      }
+
+      try {
+        const res = await fetch(url);
+        const rows = await res.json();
+        renderRows(rows, arena);
+      } catch (e) {
+        console.error('Failed to fetch stats', e);
+        rowsEl.innerHTML = '<div style="padding:20px;text-align:center;color:#999">Failed to load stats</div>';
+      }
+    }
+
+    function renderRows(rows, arena) {
+      if (!rows || rows.length === 0) {
+        rowsEl.innerHTML = '<div style="padding:20px;text-align:center;color:#999">No data yet</div>';
+        return;
+      }
+
+      // Update header based on arena type
+      if (arena === 'boss') {
+        tableHeader.className = 'row header boss';
+        tableHeader.innerHTML = '<div>#</div><div>Player</div><div style="text-align:right">Hits</div>';
+      } else {
+        tableHeader.className = 'row header';
+        tableHeader.innerHTML = '<div>#</div><div>Player</div><div style="text-align:right">Kills</div><div style="text-align:right">Hits</div><div style="text-align:right">Wins</div>';
+      }
+
+      rowsEl.innerHTML = rows.map((r, i) => {
+        const playerName = cleanPlayerName(r.player);
+        if (arena === 'boss') {
+          return `<div class="row boss">
+            <div>${i + 1}</div>
+            <div class="player" title="${playerName}">${playerName}</div>
+            <div style="text-align:right">${r.hits || 0}</div>
+          </div>`;
+        } else {
+          return `<div class="row">
+            <div>${i + 1}</div>
+            <div class="player" title="${playerName}">${playerName}</div>
+            <div style="text-align:right">${r.kills || 0}</div>
+            <div style="text-align:right">${r.hits || 0}</div>
+            <div style="text-align:right">${r.wins || 0}</div>
+          </div>`;
+        }
+      }).join('');
+    }
+
+    arenaSelect.addEventListener('change', () => {
+      const arena = arenaSelect.value;
+      brawlModeSelect.style.display = arena === 'brawl' ? 'block' : 'none';
+      fetchStats();
+    });
+
+    brawlModeSelect.addEventListener('change', fetchStats);
+
+    // Auto-refresh every 5 seconds
+    setInterval(fetchStats, 5000);
+
+    // Initial load
+    fetchStats();
+  </script>
+</body>
+</html>

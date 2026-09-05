@@ -1,0 +1,1085 @@
+{
+  "games": {
+    "game-1767378020991": {
+      "players": {
+        "dustindebbs": {
+          "hits": 10,
+          "kills": 0,
+          "wins": 1
+        },
+        "rizzroulette": {
+          "hits": 14,
+          "kills": 1,
+          "wins": 0
+        },
+        "shoolin.10": {
+          "hits": 10,
+          "kills": 1,
+          "wins": 0
+        }
+      },
+      "createdAt": 1767378020999,
+      "winner": "dustindebbs"
+    },
+    "game-1767463515278": {
+      "players": {
+        "dustindebbs": {
+          "hits": 12,
+          "kills": 0,
+          "wins": 0
+        },
+        "eva.n1120": {
+          "hits": 9,
+          "kills": 1,
+          "wins": 1
+        },
+        "rizzroulette": {
+          "hits": 17,
+          "kills": 2,
+          "wins": 0
+        },
+        "shoolin.10": {
+          "hits": 13,
+          "kills": 0,
+          "wins": 0
+        }
+      },
+      "createdAt": 1767463517074,
+      "winner": "eva.n1120"
+    },
+    "game-1767466337465": {
+      "players": {
+        "dustindebbs": {
+          "hits": 11,
+          "kills": 1,
+          "wins": 0
+        },
+        "eva.n1120": {
+          "hits": 11,
+          "kills": 2,
+          "wins": 0
+        },
+        "itx_sazzu_09": {
+          "hits": 16,
+          "kills": 0,
+          "wins": 0
+        },
+        "mr_sajid_official_77": {
+          "hits": 11,
+          "kills": 1,
+          "wins": 0
+        },
+        "rizzroulette": {
+          "hits": 11,
+          "kills": 0,
+          "wins": 0
+        },
+        "shoolin.10": {
+          "hits": 11,
+          "kills": 1,
+          "wins": 0
+        },
+        "_mohan_krishna_1": {
+          "hits": 9,
+          "kills": 1,
+          "wins": 2
+        }
+      },
+      "createdAt": 1767466337503,
+      "winner": "_mohan_krishna_1"
+    },
+    "game-1767547338241": {
+      "players": {
+        "dustindebbs": {
+          "hits": 11,
+          "kills": 0,
+          "wins": 0
+        },
+        "eva.n1120": {
+          "hits": 11,
+          "kills": 0,
+          "wins": 0
+        },
+        "nour2745": {
+          "hits": 8,
+          "kills": 3,
+          "wins": 1
+        },
+        "rizzroulette": {
+          "hits": 10,
+          "kills": 1,
+          "wins": 0
+        },
+        "shoolin.10": {
+          "hits": 9,
+          "kills": 2,
+          "wins": 0
+        },
+        "_mohan_krishna_1": {
+          "hits": 11,
+          "kills": 1,
+          "wins": 0
+        },
+        "itx_sazzu_09": {
+          "hits": 11,
+          "kills": 0,
+          "wins": 0
+        },
+        "mr_sajid_official_77": {
+          "hits": 10,
+          "kills": 0,
+          "wins": 0
+        }
+      },
+      "createdAt": 1767547339955,
+      "winner": "nour2745"
+    },
+    "game-1767636796609": {
+      "players": {
+        "dustindebbs": {
+          "hits": 24,
+          "kills": 1,
+          "wins": 0
+        },
+        "mr_sajid_official_77": {
+          "hits": 16,
+          "kills": 0,
+          "wins": 0
+        },
+        "nour2745": {
+          "hits": 16,
+          "kills": 0,
+          "wins": 0
+        },
+        "rizzroulette": {
+          "hits": 19,
+          "kills": 2,
+          "wins": 0
+        },
+        "eva.n1120": {
+          "hits": 18,
+          "kills": 1,
+          "wins": 0
+        },
+        "flam.enco16": {
+          "hits": 21,
+          "kills": 3,
+          "wins": 1
+        },
+        "itx_sazzu_09": {
+          "hits": 17,
+          "kills": 0,
+          "wins": 0
+        },
+        "shoolin.10": {
+          "hits": 19,
+          "kills": 0,
+          "wins": 0
+        }
+      },
+      "createdAt": 1767636796619,
+      "winner": "flam.enco16"
+    },
+    "game-1767805981401": {
+      "players": {
+        "dustindebbs": {
+          "hits": 16,
+          "kills": 1,
+          "wins": 0
+        },
+        "mr_sajid_official_77": {
+          "hits": 17,
+          "kills": 2,
+          "wins": 0
+        },
+        "rizzroulette": {
+          "hits": 20,
+          "kills": 2,
+          "wins": 0
+        },
+        "eva.n1120": {
+          "hits": 19,
+          "kills": 0,
+          "wins": 0
+        },
+        "nour2745": {
+          "hits": 23,
+          "kills": 2,
+          "wins": 0
+        },
+        "shoolin.10": {
+          "hits": 17,
+          "kills": 0,
+          "wins": 1
+        },
+        "flam.enco16": {
+          "hits": 25,
+          "kills": 0,
+          "wins": 0
+        },
+        "itx_sazzu_09": {
+          "hits": 16,
+          "kills": 0,
+          "wins": 0
+        }
+      },
+      "createdAt": 1767805981460,
+      "winner": "shoolin.10"
+    },
+    "game-1768241840976": {
+      "players": {
+        "all_carin": {
+          "hits": 14,
+          "kills": 0,
+          "wins": 0
+        },
+        "rostin176": {
+          "hits": 18,
+          "kills": 0,
+          "wins": 0
+        },
+        "sezibi.en": {
+          "hits": 21,
+          "kills": 1,
+          "wins": 0
+        },
+        "shoolin.10": {
+          "hits": 13,
+          "kills": 2,
+          "wins": 1
+        },
+        "djokin.34": {
+          "hits": 16,
+          "kills": 3,
+          "wins": 0
+        },
+        "dustindebbs": {
+          "hits": 18,
+          "kills": 1,
+          "wins": 0
+        },
+        "eva.n1120": {
+          "hits": 15,
+          "kills": 0,
+          "wins": 0
+        },
+        "flam.enco16": {
+          "hits": 15,
+          "kills": 1,
+          "wins": 0
+        },
+        "nour2745": {
+          "hits": 19,
+          "kills": 1,
+          "wins": 0
+        },
+        "rizzroulette": {
+          "hits": 13,
+          "kills": 0,
+          "wins": 0
+        }
+      },
+      "createdAt": 1768241841121,
+      "winner": "shoolin.10"
+    },
+    "game-1768241841425": {
+      "players": {
+        "all_carin": {
+          "hits": 10,
+          "kills": 0,
+          "wins": 0
+        },
+        "rostin176": {
+          "hits": 12,
+          "kills": 0,
+          "wins": 0
+        },
+        "sezibi.en": {
+          "hits": 23,
+          "kills": 1,
+          "wins": 0
+        },
+        "shoolin.10": {
+          "hits": 17,
+          "kills": 2,
+          "wins": 1
+        },
+        "djokin.34": {
+          "hits": 16,
+          "kills": 3,
+          "wins": 0
+        },
+        "dustindebbs": {
+          "hits": 18,
+          "kills": 1,
+          "wins": 0
+        },
+        "eva.n1120": {
+          "hits": 15,
+          "kills": 0,
+          "wins": 0
+        },
+        "flam.enco16": {
+          "hits": 17,
+          "kills": 1,
+          "wins": 0
+        },
+        "nour2745": {
+          "hits": 19,
+          "kills": 1,
+          "wins": 0
+        },
+        "rizzroulette": {
+          "hits": 13,
+          "kills": 0,
+          "wins": 0
+        },
+        "jokerrr391": {
+          "hits": 27,
+          "kills": 0,
+          "wins": 0
+        },
+        "shreyy_hy": {
+          "hits": 27,
+          "kills": 0,
+          "wins": 0
+        }
+      },
+      "createdAt": 1768241842344,
+      "winner": "shoolin.10"
+    },
+    "game-1769795854158": {
+      "players": {
+        "all_carin": {
+          "hits": 29,
+          "kills": 4,
+          "wins": 0
+        },
+        "djokin.34": {
+          "hits": 30,
+          "kills": 2,
+          "wins": 0
+        },
+        "dustindebbs": {
+          "hits": 30,
+          "kills": 0,
+          "wins": 0
+        },
+        "eva.n1120": {
+          "hits": 29,
+          "kills": 1,
+          "wins": 0
+        },
+        "itz_harry22": {
+          "hits": 32,
+          "kills": 3,
+          "wins": 1
+        },
+        "jokerrr391": {
+          "hits": 30,
+          "kills": 0,
+          "wins": 0
+        },
+        "king5ll._": {
+          "hits": 31,
+          "kills": 0,
+          "wins": 0
+        },
+        "nour2745": {
+          "hits": 25,
+          "kills": 0,
+          "wins": 0
+        },
+        "rizzroulette": {
+          "hits": 29,
+          "kills": 1,
+          "wins": 0
+        },
+        "rostin176": {
+          "hits": 29,
+          "kills": 0,
+          "wins": 0
+        },
+        "sezibi.en": {
+          "hits": 37,
+          "kills": 1,
+          "wins": 0
+        },
+        "sherin_aj": {
+          "hits": 30,
+          "kills": 1,
+          "wins": 0
+        },
+        "shreyy_hy": {
+          "hits": 33,
+          "kills": 0,
+          "wins": 0
+        },
+        "flam.enco16": {
+          "hits": 27,
+          "kills": 0,
+          "wins": 0
+        }
+      },
+      "createdAt": 1769795854166,
+      "winner": "itz_harry22"
+    },
+    "game-1770483746015": {
+      "players": {
+        "all_carin": {
+          "hits": 23,
+          "kills": 2,
+          "wins": 1
+        },
+        "itz_harry22": {
+          "hits": 23,
+          "kills": 0,
+          "wins": 0
+        },
+        "djokin.34": {
+          "hits": 23,
+          "kills": 2,
+          "wins": 0
+        },
+        "dustindebbs": {
+          "hits": 25,
+          "kills": 1,
+          "wins": 0
+        },
+        "jokerrr391": {
+          "hits": 17,
+          "kills": 0,
+          "wins": 0
+        },
+        "eva.n1120": {
+          "hits": 23,
+          "kills": 0,
+          "wins": 0
+        },
+        "flam.enco16": {
+          "hits": 28,
+          "kills": 0,
+          "wins": 0
+        },
+        "king5ll._": {
+          "hits": 31,
+          "kills": 2,
+          "wins": 0
+        },
+        "nour2745": {
+          "hits": 19,
+          "kills": 3,
+          "wins": 0
+        },
+        "rizzroulette": {
+          "hits": 28,
+          "kills": 2,
+          "wins": 0
+        },
+        "rostin176": {
+          "hits": 22,
+          "kills": 1,
+          "wins": 0
+        },
+        "sezibi.en": {
+          "hits": 24,
+          "kills": 0,
+          "wins": 0
+        },
+        "sherin_aj": {
+          "hits": 22,
+          "kills": 0,
+          "wins": 0
+        },
+        "shreyy_hy": {
+          "hits": 26,
+          "kills": 0,
+          "wins": 0
+        }
+      },
+      "createdAt": 1770483746052,
+      "winner": "all_carin"
+    },
+    "game-1770565856705": {
+      "players": {
+        "1237890va": {
+          "hits": 30,
+          "kills": 3,
+          "wins": 2
+        },
+        "dustindebbs": {
+          "hits": 31,
+          "kills": 0,
+          "wins": 0
+        },
+        "eva.n1120": {
+          "hits": 32,
+          "kills": 0,
+          "wins": 0
+        },
+        "flam.enco16": {
+          "hits": 31,
+          "kills": 3,
+          "wins": 0
+        },
+        "itz_harry22": {
+          "hits": 34,
+          "kills": 2,
+          "wins": 0
+        },
+        "joeb_ulk": {
+          "hits": 35,
+          "kills": 0,
+          "wins": 0
+        },
+        "jokerrr391": {
+          "hits": 36,
+          "kills": 4,
+          "wins": 0
+        },
+        "kango.wade7": {
+          "hits": 31,
+          "kills": 1,
+          "wins": 0
+        },
+        "king5ll._": {
+          "hits": 34,
+          "kills": 0,
+          "wins": 0
+        },
+        "nour2745": {
+          "hits": 39,
+          "kills": 0,
+          "wins": 0
+        },
+        "rizzroulette": {
+          "hits": 31,
+          "kills": 0,
+          "wins": 0
+        },
+        "rostin176": {
+          "hits": 33,
+          "kills": 0,
+          "wins": 0
+        },
+        "sezibi.en": {
+          "hits": 29,
+          "kills": 0,
+          "wins": 0
+        },
+        "sherin_aj": {
+          "hits": 41,
+          "kills": 1,
+          "wins": 0
+        },
+        "shreyy_hy": {
+          "hits": 34,
+          "kills": 2,
+          "wins": 0
+        },
+        "all_carin": {
+          "hits": 35,
+          "kills": 0,
+          "wins": 0
+        },
+        "armadillo_13.57": {
+          "hits": 35,
+          "kills": 0,
+          "wins": 0
+        },
+        "djokin.34": {
+          "hits": 37,
+          "kills": 1,
+          "wins": 0
+        }
+      },
+      "createdAt": 1770565856708,
+      "winner": "1237890va"
+    },
+    "game-1770829236543": {
+      "players": {
+        "1237890va": {
+          "hits": 41,
+          "kills": 5,
+          "wins": 0
+        },
+        "12__3q": {
+          "hits": 41,
+          "kills": 4,
+          "wins": 0
+        },
+        "all_carin": {
+          "hits": 27,
+          "kills": 0,
+          "wins": 0
+        },
+        "armadillo_13.57": {
+          "hits": 14,
+          "kills": 0,
+          "wins": 0
+        },
+        "eva.n1120": {
+          "hits": 20,
+          "kills": 1,
+          "wins": 0
+        },
+        "flam.enco16": {
+          "hits": 34,
+          "kills": 5,
+          "wins": 1
+        },
+        "itz_harry22": {
+          "hits": 25,
+          "kills": 2,
+          "wins": 0
+        },
+        "joeb_ulk": {
+          "hits": 23,
+          "kills": 0,
+          "wins": 0
+        },
+        "jokerrr391": {
+          "hits": 21,
+          "kills": 0,
+          "wins": 0
+        },
+        "kango.wade7": {
+          "hits": 22,
+          "kills": 0,
+          "wins": 0
+        },
+        "king5ll._": {
+          "hits": 22,
+          "kills": 0,
+          "wins": 0
+        },
+        "nour2745": {
+          "hits": 23,
+          "kills": 0,
+          "wins": 0
+        },
+        "rizzroulette": {
+          "hits": 15,
+          "kills": 0,
+          "wins": 0
+        },
+        "rostin176": {
+          "hits": 23,
+          "kills": 0,
+          "wins": 0
+        },
+        "sezibi.en": {
+          "hits": 22,
+          "kills": 0,
+          "wins": 0
+        },
+        "sherin_aj": {
+          "hits": 16,
+          "kills": 0,
+          "wins": 0
+        },
+        "shreyy_hy": {
+          "hits": 17,
+          "kills": 0,
+          "wins": 0
+        },
+        "turnerb.143o": {
+          "hits": 21,
+          "kills": 1,
+          "wins": 0
+        },
+        "_shan_aya1298": {
+          "hits": 31,
+          "kills": 1,
+          "wins": 0
+        },
+        "djokin.34": {
+          "hits": 22,
+          "kills": 0,
+          "wins": 0
+        }
+      },
+      "createdAt": 1770829238289,
+      "winner": "flam.enco16"
+    },
+    "game-1771089704645": {
+      "players": {
+        "1237890va": {
+          "hits": 23,
+          "kills": 0,
+          "wins": 0
+        },
+        "chouhan.sandeepchouhansandeep": {
+          "hits": 23,
+          "kills": 1,
+          "wins": 0
+        },
+        "djokin.34": {
+          "hits": 29,
+          "kills": 3,
+          "wins": 0
+        },
+        "eva.n1120": {
+          "hits": 29,
+          "kills": 1,
+          "wins": 0
+        },
+        "12__3q": {
+          "hits": 28,
+          "kills": 0,
+          "wins": 0
+        },
+        "all_carin": {
+          "hits": 28,
+          "kills": 0,
+          "wins": 0
+        },
+        "armadillo_13.57": {
+          "hits": 16,
+          "kills": 3,
+          "wins": 1
+        },
+        "flam.enco16": {
+          "hits": 19,
+          "kills": 0,
+          "wins": 0
+        },
+        "itz_harry22": {
+          "hits": 21,
+          "kills": 1,
+          "wins": 0
+        },
+        "joeb_ulk": {
+          "hits": 28,
+          "kills": 1,
+          "wins": 0
+        },
+        "jokerrr391": {
+          "hits": 25,
+          "kills": 1,
+          "wins": 0
+        },
+        "kango.wade7": {
+          "hits": 22,
+          "kills": 0,
+          "wins": 0
+        },
+        "karn_sharma": {
+          "hits": 25,
+          "kills": 1,
+          "wins": 0
+        },
+        "king5ll._": {
+          "hits": 26,
+          "kills": 0,
+          "wins": 0
+        },
+        "kingboyoffcl14": {
+          "hits": 29,
+          "kills": 1,
+          "wins": 0
+        },
+        "nour2745": {
+          "hits": 23,
+          "kills": 0,
+          "wins": 0
+        },
+        "rizzroulette": {
+          "hits": 28,
+          "kills": 0,
+          "wins": 0
+        },
+        "rostin176": {
+          "hits": 21,
+          "kills": 1,
+          "wins": 0
+        },
+        "sad_bloke23": {
+          "hits": 19,
+          "kills": 1,
+          "wins": 0
+        },
+        "sezibi.en": {
+          "hits": 22,
+          "kills": 2,
+          "wins": 0
+        },
+        "shawn.ts": {
+          "hits": 23,
+          "kills": 2,
+          "wins": 0
+        },
+        "sherin_aj": {
+          "hits": 26,
+          "kills": 0,
+          "wins": 0
+        },
+        "shreyy_hy": {
+          "hits": 24,
+          "kills": 1,
+          "wins": 0
+        },
+        "turnerb.143o": {
+          "hits": 20,
+          "kills": 2,
+          "wins": 0
+        },
+        "_shan_aya1298": {
+          "hits": 24,
+          "kills": 2,
+          "wins": 0
+        }
+      },
+      "createdAt": 1771089704652,
+      "winner": "armadillo_13.57"
+    },
+    "game-1788591823201": {
+      "players": {
+        "all_carin": {
+          "hits": 22,
+          "kills": 1,
+          "wins": 0
+        },
+        "flam.enco16": {
+          "hits": 18,
+          "kills": 0,
+          "wins": 0
+        },
+        "itx_sazzu_09": {
+          "hits": 21,
+          "kills": 1,
+          "wins": 0
+        },
+        "mr_sajid_official_77": {
+          "hits": 13,
+          "kills": 3,
+          "wins": 0
+        },
+        "nour2745": {
+          "hits": 22,
+          "kills": 1,
+          "wins": 0
+        },
+        "rizzroulette": {
+          "hits": 20,
+          "kills": 1,
+          "wins": 0
+        },
+        "sezibi.en": {
+          "hits": 21,
+          "kills": 2,
+          "wins": 0
+        },
+        "shoolin.10": {
+          "hits": 15,
+          "kills": 0,
+          "wins": 0
+        },
+        "_mohan_krishna_1": {
+          "hits": 23,
+          "kills": 0,
+          "wins": 0
+        },
+        "djokin.34": {
+          "hits": 23,
+          "kills": 0,
+          "wins": 0
+        },
+        "dustindebbs": {
+          "hits": 1,
+          "kills": 0,
+          "wins": 0
+        },
+        "eva.n1120": {
+          "hits": 17,
+          "kills": 1,
+          "wins": 0
+        }
+      },
+      "createdAt": 1788591823227,
+      "gameIndex": "game-14"
+    }
+  },
+  "totals": {
+    "dustindebbs": {
+      "hits": 207,
+      "kills": 6,
+      "wins": 1,
+      "games": 12
+    },
+    "rizzroulette": {
+      "hits": 268,
+      "kills": 12,
+      "wins": 0,
+      "games": 14
+    },
+    "shoolin.10": {
+      "hits": 124,
+      "kills": 8,
+      "wins": 3,
+      "games": 9
+    },
+    "eva.n1120": {
+      "hits": 248,
+      "kills": 8,
+      "wins": 1,
+      "games": 13
+    },
+    "itx_sazzu_09": {
+      "hits": 81,
+      "kills": 1,
+      "wins": 0,
+      "games": 5
+    },
+    "mr_sajid_official_77": {
+      "hits": 67,
+      "kills": 6,
+      "wins": 0,
+      "games": 5
+    },
+    "_mohan_krishna_1": {
+      "hits": 43,
+      "kills": 2,
+      "wins": 1,
+      "games": 3
+    },
+    "nour2745": {
+      "hits": 236,
+      "kills": 11,
+      "wins": 1,
+      "games": 11
+    },
+    "flam.enco16": {
+      "hits": 235,
+      "kills": 13,
+      "wins": 2,
+      "games": 10
+    },
+    "all_carin": {
+      "hits": 188,
+      "kills": 7,
+      "wins": 1,
+      "games": 8
+    },
+    "djokin.34": {
+      "hits": 196,
+      "kills": 14,
+      "wins": 0,
+      "games": 8
+    },
+    "sezibi.en": {
+      "hits": 199,
+      "kills": 7,
+      "wins": 0,
+      "games": 8
+    },
+    "rostin176": {
+      "hits": 158,
+      "kills": 2,
+      "wins": 0,
+      "games": 7
+    },
+    "jokerrr391": {
+      "hits": 156,
+      "kills": 5,
+      "wins": 0,
+      "games": 6
+    },
+    "shreyy_hy": {
+      "hits": 161,
+      "kills": 3,
+      "wins": 0,
+      "games": 6
+    },
+    "itz_harry22": {
+      "hits": 135,
+      "kills": 8,
+      "wins": 1,
+      "games": 5
+    },
+    "king5ll._": {
+      "hits": 144,
+      "kills": 2,
+      "wins": 0,
+      "games": 5
+    },
+    "sherin_aj": {
+      "hits": 135,
+      "kills": 2,
+      "wins": 0,
+      "games": 5
+    },
+    "1237890va": {
+      "hits": 94,
+      "kills": 8,
+      "wins": 2,
+      "games": 3
+    },
+    "joeb_ulk": {
+      "hits": 86,
+      "kills": 1,
+      "wins": 0,
+      "games": 3
+    },
+    "kango.wade7": {
+      "hits": 75,
+      "kills": 1,
+      "wins": 0,
+      "games": 3
+    },
+    "armadillo_13.57": {
+      "hits": 65,
+      "kills": 3,
+      "wins": 1,
+      "games": 3
+    },
+    "12__3q": {
+      "hits": 69,
+      "kills": 4,
+      "wins": 0,
+      "games": 2
+    },
+    "turnerb.143o": {
+      "hits": 41,
+      "kills": 3,
+      "wins": 0,
+      "games": 2
+    },
+    "_shan_aya1298": {
+      "hits": 55,
+      "kills": 3,
+      "wins": 0,
+      "games": 2
+    },
+    "chouhan.sandeepchouhansandeep": {
+      "hits": 23,
+      "kills": 1,
+      "wins": 0,
+      "games": 1
+    },
+    "karn_sharma": {
+      "hits": 25,
+      "kills": 1,
+      "wins": 0,
+      "games": 1
+    },
+    "kingboyoffcl14": {
+      "hits": 29,
+      "kills": 1,
+      "wins": 0,
+      "games": 1
+    },
+    "sad_bloke23": {
+      "hits": 19,
+      "kills": 1,
+      "wins": 0,
+      "games": 1
+    },
+    "shawn.ts": {
+      "hits": 23,
+      "kills": 2,
+      "wins": 0,
+      "games": 1
+    }
+  }
+}

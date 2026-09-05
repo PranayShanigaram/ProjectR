@@ -1,0 +1,88 @@
+{
+  "games": {
+    "game-1768146995814": {
+      "players": {
+        "dustindebbs": {
+          "hits": 9
+        },
+        "eva.n1120": {
+          "hits": 26
+        },
+        "shoolin.10": {
+          "hits": 15
+        },
+        "superbubble": {
+          "hits": 50,
+          "image": "game-game-1768146995814-superbubble.jpg"
+        },
+        "flam.enco16": {
+          "hits": 23
+        },
+        "nour2745": {
+          "hits": 16
+        }
+      },
+      "createdAt": 1768146995821,
+      "winner": "team"
+    },
+    "game-1771171788104": {
+      "players": {
+        "1237890va": {
+          "hits": 15
+        },
+        "all_carin": {
+          "hits": 11
+        },
+        "armadillo_13.57": {
+          "hits": 15
+        },
+        "superbubble": {
+          "hits": 37
+        },
+        "flam.enco16": {
+          "hits": 13
+        }
+      },
+      "createdAt": 1771171788111,
+      "winner": "team"
+    }
+  },
+  "totals": {
+    "dustindebbs": {
+      "hits": 9,
+      "games": 1
+    },
+    "eva.n1120": {
+      "hits": 26,
+      "games": 1
+    },
+    "shoolin.10": {
+      "hits": 15,
+      "games": 1
+    },
+    "flam.enco16": {
+      "hits": 55,
+      "games": 2
+    },
+    "nour2745": {
+      "hits": 16,
+      "games": 1
+    },
+    "kratos": {
+      "hits": 3,
+      "games": 1
+    },
+    "1237890va": {
+      "hits": 33,
+      "games": 1
+    },
+    "all_carin": {
+      "hits": 27,
+      "games": 1
+    },
+    "armadillo_13.57": {
+      "hits": 29,
+      "games": 1
+    }
+  }
+}

@@ -1,0 +1,51 @@
+import { useMemo, useState } from "react";
+import { Link, useNavigate, useParams } from "react-router-dom";
+
+type Game = "bubblebash" | "football" | "cricket";
+
+const gameInfo: Record<Game, { title: string; short: string; icon: string; color: string; description: string; detail: string }> = {
+  bubblebash: { title: "Bubblebash", short: "COMBAT ARENA", icon: "◉", color: "violet", description: "Fast. Chaotic. Unpredictable.", detail: "Build a bubble, choose your arena and outlast the chaos." },
+  football: { title: "Football", short: "TEAM BATTLE", icon: "⚽", color: "green", description: "Build your squad. Watch the battle.", detail: "Choose a nation, build your XI and own the pitch." },
+  cricket: { title: "IPL Cricket", short: "LEAGUE BATTLE", icon: "🏏", color: "red", description: "Pick your XI. Own the innings.", detail: "Set your side, select an impact player and take the innings." },
+};
+
+const modes: Record<Game, string[]> = {
+  bubblebash: ["Normal Arena|Many bubbles. Last one wins.", "Boss Arena|Fight the superbubble.", "1 vs 1|A classic duel.", "1 vs Many|Can you survive the horde?"],
+  football: ["Classic Match|Build two sides and play it out.", "Quick Battle|A fast community fixture.", "Tournament|Play for the standings."],
+  cricket: ["Fan Brawl|Community teams collide.", "Classic T20|Twenty overs. One winner.", "Rain Challenge|Weather changes everything."],
+};
+
+function Header() {
+  return <header className="pr-header"><Link to="/" className="pr-brand"><span>◧</span> ProjectR</Link><nav><Link to="/">Home</Link><Link to="/games">Games</Link><a href="#matches">Matches</a><a href="#leaderboard">Leaderboard</a></nav><Link className="pr-login" to="/games">Login</Link></header>;
+}
+
+function GameCards() {
+  return <section className="pr-games">{(Object.keys(gameInfo) as Game[]).map((game) => { const info = gameInfo[game]; return <Link key={game} to={`/${game}`} className={`pr-game-card ${info.color}`}><div className="game-orb">{info.icon}</div><div><small>{info.short}</small><h2>{info.title}</h2><p>{info.description}</p></div><span className="play">Play now →</span></Link>; })}</section>;
+}
+
+function Home() {
+  return <><section className="pr-hero"><div><p className="kicker">WELCOME TO PROJECTR</p><h1>THREE ARENAS<br /><span>ONE COMMUNITY</span></h1><p>Choose your game. Build your team. Buy powers. Watch the chaos.</p><div className="hero-actions"><Link className="button primary" to="/games">Create match →</Link><Link className="button ghost" to="/bubblebash/join">Join match</Link></div></div><div className="hero-visual"><div className="planet">◉</div><i className="ring one"/><i className="ring two"/><b className="tag brawl">BUBBLEBASH</b><b className="tag football">FOOTBALL</b><b className="tag cricket">CRICKET</b></div></section><GameCards /><section className="pr-stats"><span><b>100K+</b> Players</span><span><b>500+</b> Battles</span><span><b>3</b> Game modes</span><span><b>∞</b> Chaos</span></section></>;
+}
+
+function JoinCreate({ game }: { game: Game }) {
+  const [tab, setTab] = useState<"join" | "create">("join"); const navigate = useNavigate();
+  return <section className="flow-card"><div className="tabs"><button className={tab === "join" ? "active" : ""} onClick={() => setTab("join")}>Join Match</button><button className={tab === "create" ? "active" : ""} onClick={() => setTab("create")}>Create Match</button></div>{tab === "join" ? <><label>ENTER MATCH CODE<input placeholder="e.g. BA1024" /></label><button className="button primary" onClick={() => navigate(`/${game}/${game === "bubblebash" ? "setup" : "team"}`)}>Join →</button><div className="upcoming"><h3>Upcoming public matches</h3>{["RCB vs CSK Fan Arena", "World Cup Chaos", "Community Battle #12"].map((name, i) => <div key={name}><span className={`mini ${gameInfo[game].color}`}>{gameInfo[game].icon}</span><b>{name}<small>{gameInfo[game].title} · {45 + i * 19} / 100</small></b><button onClick={() => navigate(`/${game}/ready`)}>Join</button></div>)}</div></> : <div className="form-grid"><label>Match name<input placeholder="Community Fan Brawl" /></label><label>Maximum players<select><option>100 players</option><option>20 players</option><option>10 players</option></select></label><label>Visibility<select><option>Public match</option><option>Private match</option></select></label><button className="button primary" onClick={() => navigate(`/${game}/mode`)}>Continue →</button></div>}</section>;
+}
+
+function Setup({ game }: { game: Game }) {
+  const navigate = useNavigate(); const [selected, setSelected] = useState(0); const [color, setColor] = useState("cyan");
+  if (game === "bubblebash") return <section className="setup-grid"><div className="bubble-preview"><div className={`bubble ${color}`}>◉</div><div className="color-row">{["red", "blue", "green", "yellow", "purple", "cyan"].map(c => <button aria-label={c} key={c} className={`color-dot ${c} ${color === c ? "selected" : ""}`} onClick={() => setColor(c)} />)}</div></div><div className="config-panel"><h2>Create your bubble</h2><p>Choose an avatar that will enter the arena with you.</p><div className="avatar-row">{["◉", "◌", "◍", "◈", "◉"].map((a, i) => <button key={i} className={`avatar-choice ${selected === i ? "selected" : ""}`} onClick={() => setSelected(i)}>{a}</button>)}</div><label>Display name<input defaultValue="Player One" maxLength={20} /></label><div className="range-label">Starting HP <b>100</b></div><input type="range" defaultValue="100" /><button className="button primary" onClick={() => navigate("/bubblebash/powers")}>Save & continue →</button></div></section>;
+  const isFootball = game === "football"; return <section className="team-choice"><div className="choice-top"><span className={`game-symbol ${gameInfo[game].color}`}>{gameInfo[game].icon}</span><div><p className="kicker">{gameInfo[game].title}</p><h2>{isFootball ? "Choose your team" : "Build your XI"}</h2></div></div><div className="segmented"><button className="active">{isFootball ? "National Teams" : "Batters"}</button><button>{isFootball ? "Clubs" : "All-rounders"}</button><button>{isFootball ? "Custom" : "Bowlers"}</button></div><input className="search" placeholder={isFootball ? "Search country…" : "Search player…"}/><div className="team-list">{(isFootball ? ["France", "Brazil", "Argentina", "Germany", "Spain", "England"] : ["Chennai Super Kings", "Mumbai Indians", "Royal Challengers Bengaluru", "Kolkata Knight Riders"]).map((name, i) => <button className={i === 0 ? `selected ${gameInfo[game].color}` : ""} onClick={() => setSelected(i)} key={name}><span>{isFootball ? ["🇫🇷", "🇧🇷", "🇦🇷", "🇩🇪", "🇪🇸", "🏴"][i] : ["🦁", "🔵", "🔴", "🟣"][i]}</span><b>{name}<small>{isFootball ? "Rating 87 · ATT 89 · DEF 84" : "Captain · Rating 86"}</small></b></button>)}</div><button className="button primary" onClick={() => navigate(`/${game}/ready`)}>Continue →</button></section>;
+}
+
+function Mode({ game }: { game: Game }) { const navigate = useNavigate(); const [picked, setPicked] = useState(0); return <section className="mode-list"><h2>Choose Match Mode</h2>{modes[game].map((entry, i) => { const [title, desc] = entry.split("|"); return <button key={title} onClick={() => setPicked(i)} className={picked === i ? `selected ${gameInfo[game].color}` : ""}><span className="mode-icon">{gameInfo[game].icon}</span><b>{title}<small>{desc}</small></b><i>{picked === i ? "✓" : ""}</i></button>; })}<button className="button primary" onClick={() => navigate(`/${game}/join`)}>Continue →</button></section>; }
+
+function Powers() { const navigate = useNavigate(); const [bought, setBought] = useState<string[]>([]); const powers = [["🔥", "Fireball", "Deal explosive damage", "₹10"], ["🛡", "Shield", "Block next attack", "₹10"], ["♥", "Heal", "Restore 50 HP", "₹20"], ["⚡", "Speed boost", "Move 2x faster for 10s", "₹20"], ["❄", "Freeze", "Freeze nearby players", "₹30"]]; return <section className="power-panel"><div className="tabs"><button className="active">One-time Powers</button><button>Power packs</button></div>{powers.map(([icon, title, desc, price]) => <div className="power-card" key={title}><span>{icon}</span><b>{title}<small>{desc}</small></b><em>{price}</em><button onClick={() => setBought(p => p.includes(title) ? p : [...p, title])}>{bought.includes(title) ? "Added" : "Buy"}</button></div>)}<button className="button primary" onClick={() => navigate("/bubblebash/ready")}>Ready up →</button></section>; }
+
+function Ready({ game }: { game: Game }) { const navigate = useNavigate(); return <section className="ready-screen"><div className={`ready-orb ${gameInfo[game].color}`}>{gameInfo[game].icon}</div><p className="kicker">MATCH CODE · BA1024</p><h1>You’re in!</h1><p>Waiting for the match to start…</p><div className="ready-info"><span>Players joined <b>87 / 100</b></span><span>Your team <b>Team Red</b></span><span>Your powers <b>🔥 2 purchased</b></span></div><button className="button primary" onClick={() => navigate(`/${game}/game`)}>Enter game →</button><button className="leave">Leave match</button></section>; }
+
+export default function PlatformPage() {
+  const { game: rawGame, step } = useParams(); const game = rawGame && rawGame in gameInfo ? rawGame as Game : undefined;
+  const content = useMemo(() => { if (!game) return rawGame === "games" ? <><div className="page-title"><p className="kicker">SELECT YOUR ARENA</p><h1>Choose your arena</h1><p>Different games. Same chaos.</p></div><GameCards /></> : <Home />; if (!step) return <><div className="page-title"><p className="kicker">{gameInfo[game].short}</p><h1>{gameInfo[game].title}</h1><p>{gameInfo[game].detail}</p></div><Mode game={game} /></>; if (step === "mode") return <Mode game={game} />; if (step === "join" || step === "create") return <JoinCreate game={game} />; if (step === "setup" || step === "team" || step === "xi") return <Setup game={game} />; if (step === "powers") return <Powers />; return <Ready game={game} />; }, [game, rawGame, step]);
+  return <div className="projectr"><Header /><main className="pr-main">{content}</main></div>;
+}

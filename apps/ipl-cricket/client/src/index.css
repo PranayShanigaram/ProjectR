@@ -1,0 +1,128 @@
+/* index.css */
+
+/* Tailwind base */
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/* Global custom styles */
+html, body, #root {
+  width: 100%;
+  height: 100%;
+  margin: 0;
+  padding: 0;
+  font-family: system-ui, sans-serif;
+  background-color: #121212; /* Dark background */
+  color: #ffffff;
+}
+
+.fullscreen-center {
+  display: grid;
+  place-items: center;
+  width: 100%;
+  height: 100%;
+}
+
+/* Button, input, link defaults */
+button {
+  border-radius: 8px;
+  border: 1px solid transparent;
+  padding: 0.6em 1.2em;
+  font-size: 1em;
+  font-weight: 500;
+  font-family: inherit;
+  background-color: #6200ea; /* Vibrant purple */
+  cursor: pointer;
+  transition: border-color 0.25s, background-color 0.25s;
+}
+button:hover {
+  border-color: #bb86fc;
+  background-color: #3700b3;
+}
+
+input {
+  font-family: inherit;
+  border-radius: 6px;
+  border: 1px solid #444;
+  padding: 0.5em 1em;
+  outline: none;
+  transition: border-color 0.2s, box-shadow 0.2s;
+  color: #000000;
+}
+input:focus {
+  border-color: #6200ea;
+  box-shadow: 0 0 5px rgba(98, 0, 234, 0.5);
+}
+
+/* Arena container */
+.arena {
+  position: relative;
+  background: linear-gradient(135deg, #1f1f2e, #3a3a5e); /* Dark blue gradient */
+  border: 3px solid #bb86fc; /* Neon purple border */
+  border-radius: 1rem;
+  overflow: hidden;
+  width: 90vw;
+  height: 90vh;
+  margin: 2vh auto;
+}
+
+/* Inner arena border */
+.inner-arena {
+  position: absolute;
+  top: 2%;
+  left: 2%;
+  width: 96%;
+  height: 96%;
+  border: 4px dashed #bb86fc;
+  border-radius: 1rem;
+}
+
+/* Sidebar controls */
+.sidebar {
+  background-color: #1f1f2e;
+  color: #fff;
+  padding: 1rem;
+  border-left: 2px solid #6200ea;
+  width: 15vw;
+  min-width: 200px;
+}
+
+/* Bubbles container */
+.bubble-container {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 100%;
+}
+
+/* Bubble image */
+.bubble img {
+  pointer-events: none;
+  user-select: none;
+  border-radius: 50%;
+  box-shadow: 0 4px 8px rgba(0, 0, 0, 0.5);
+}
+
+/* Circular health bar */
+.bubble svg {
+  position: absolute;
+  top: 0;
+  left: 0;
+  transform: rotate(-90deg);
+}
+
+/* index.css */
+.health-bar {
+  transition: stroke 0.3s ease;
+}
+
+.platform-landing { min-height: 100vh; color: #fff; background: radial-gradient(circle at 14% 12%, rgba(255,59,48,0.2), transparent 30%), radial-gradient(circle at 84% 72%, rgba(255,209,102,0.12), transparent 28%), #070a10; font-family: Inter, ui-sans-serif, system-ui, sans-serif; }
+.platform-nav { display: flex; align-items: center; justify-content: space-between; gap: 1rem; padding: 1.1rem clamp(1rem, 4vw, 4rem); border-bottom: 1px solid rgba(255,255,255,0.08); background: rgba(7,10,16,0.76); backdrop-filter: blur(18px); }
+.platform-logo { font-size: 1.1rem; font-weight: 800; }.platform-nav > span { color: #a7b0c0; font-size: 0.7rem; letter-spacing: .12em; }
+.platform-nav-button, .landing-cta { background: linear-gradient(135deg, #ff3b30, #ff8a3d); color: #fff; border: 1px solid rgba(255,255,255,.2); box-shadow: 0 10px 28px rgba(255,59,48,.24); }
+.landing-hero { display: grid; grid-template-columns: minmax(0,1fr) minmax(300px,.85fr); align-items: center; gap: 2rem; max-width: 1240px; min-height: 72vh; margin: auto; padding: 3rem clamp(1rem,5vw,4rem); }
+.landing-copy h1 { margin: 1rem 0; font-size: clamp(2.8rem,7vw,5.8rem); line-height: .95; letter-spacing: -.04em; }.landing-copy h1 span { color: #ffd166; }.landing-subtitle { max-width: 500px; color: #a7b0c0; line-height: 1.6; }.eyebrow { color: #ff8a3d; font-size: .72rem; font-weight: 800; letter-spacing: .16em; text-transform: uppercase; }.landing-cta { margin-top: 1.5rem; padding: .9rem 1.3rem; }
+.landing-orbit { position: relative; min-height: 370px; display: grid; place-items: center; }.orbit-core { display: grid; place-items: center; width: 118px; height: 118px; border-radius: 50%; font-size: 3rem; background: radial-gradient(circle at 35% 25%, #fff, #ff3b30 22%, #29151b 70%); box-shadow: 0 0 50px rgba(255,59,48,.7); }.orbit-ring { position: absolute; border: 1px solid rgba(255,138,61,.6); border-radius: 50%; }.orbit-ring-one { width: 280px; height: 150px; transform: rotate(-18deg) skewX(-12deg); }.orbit-ring-two { width: 360px; height: 210px; transform: rotate(62deg) skewX(-12deg); border-color: rgba(255,209,102,.4); }.orbit-chip { position: absolute; padding: .55rem .8rem; border: 1px solid rgba(255,255,255,.16); border-radius: 999px; background: rgba(16,23,34,.9); font-size: .68rem; font-weight: 800; }.chip-cricket { color: #ffd166; bottom: 10%; right: 10%; }.chip-brawl { color: #bb9cff; top: 12%; right: 5%; }
+.landing-stats, .cross-game-links { display: flex; justify-content: center; gap: 2rem; padding: 1.2rem; border-top: 1px solid rgba(255,255,255,.08); color: #a7b0c0; }.landing-stats b { color: #fff; margin-right: .3rem; }.cross-game-links { border-top: 0; padding-top: 0; }.cross-game-links button { background: transparent; color: #a7b0c0; border: 1px solid rgba(255,255,255,.12); }
+@media (max-width: 760px) { .platform-nav > span { display: none; }.landing-hero { grid-template-columns: 1fr; min-height: auto; padding-top: 4rem; }.landing-orbit { min-height: 280px; }.landing-stats { flex-wrap: wrap; gap: 1rem; } }

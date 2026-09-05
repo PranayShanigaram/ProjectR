@@ -1,0 +1,432 @@
+ <!doctype html>
+<html>
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>BubbleClash — Leaderboard</title>
+  <style>
+    :root{--bg1:#071029;--bg2:#081226;--accent:#7c3aed}
+    body { font-family: system-ui, -apple-system, Segoe UI, Roboto, "Helvetica Neue", Arial; background:linear-gradient(135deg,var(--bg1),var(--bg2)); color:#fff; margin:0; padding:24px; }
+    .container { max-width:980px; margin:0 auto }
+    h1 { font-size:22px; margin:0 0 12px 0 }
+    .hero{position:relative;padding:14px;border-radius:14px;overflow:visible}
+    .glow-bg{position:absolute;inset:-20%;background:radial-gradient(circle at 10% 20%, rgba(124,58,237,0.12), transparent 6%), radial-gradient(circle at 90% 80%, rgba(14,165,233,0.06), transparent 6%);filter:blur(48px);z-index:0;pointer-events:none}
+    .card{position:relative;z-index:2;background:linear-gradient(180deg, rgba(255,255,255,0.03), rgba(255,255,255,0.015)); border-radius:12px; overflow:hidden; box-shadow:0 12px 40px rgba(2,6,23,0.6)}
+    .row{display:grid;grid-template-columns:48px 1fr 120px 60px;gap:8px;padding:12px 16px;align-items:center}
+    .row.boss{grid-template-columns:48px 1fr 120px 60px}
+    .row.normal{grid-template-columns:48px 1fr 90px 90px 80px 60px}
+    .row.header{font-weight:700;background:linear-gradient(90deg, rgba(255,255,255,0.02), rgba(255,255,255,0.01))}
+    .row + .row{border-top:1px solid rgba(255,255,255,0.02)}
+    .player{white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+    .small{font-size:13px;color:rgba(255,255,255,0.7)}
+    .controls{margin-bottom:12px;display:flex;gap:8px;align-items:center;z-index:2;position:relative}
+    select,input{background:rgba(255,255,255,0.03);border:0;padding:10px;border-radius:8px;color:#fff}
+    button{background:linear-gradient(90deg,var(--accent),#0ea5e9);border:0;padding:8px 12px;border-radius:10px;color:#fff;cursor:pointer}
+    button.danger{background:#ef4444}
+    .muted{color:rgba(255,255,255,0.6)}
+    .tilt-area{perspective:1200px}
+    .tilt-card{transition:transform 0.15s ease-out;transform-style:preserve-3d}
+    /* Footer with logo
+    .footer{display:flex;justify-content:center;align-items:center;margin-top:40px;padding:20px;opacity:0.8}
+    .footer img{height:60px;opacity:0.7;transition:opacity 200ms}
+    .footer img:hover{opacity:1} */
+  </style>
+</head>
+<body>
+  <div class="container">
+    <h1>Leaderboard</h1>
+    <div class="controls">
+      <div style="display:flex;gap:8px;align-items:center;">
+        <label for="gameSelect" class="small" style="color:#cbd5e1">View:</label>
+        <select id="gameSelect"></select>
+        <button id="deleteGame" class="danger" style="padding:8px;font-size:12px;">Delete Game</button>
+        <select id="arenaSelect" style="margin-left:8px;padding:8px;border-radius:6px">
+          <option value="normal">Normal</option>
+          <option value="boss">Boss</option>
+          <option value="brawl">Brawl</option>
+        </select>
+        <select id="brawlModeSelect" style="display:none;padding:8px;border-radius:6px">
+          <option value="">All</option>
+          <option value="1v1">1v1</option>
+          <option value="1vMany">1vMany</option>
+        </select>
+        <input id="search" placeholder="Search player..." style="min-width:220px;padding:8px;border-radius:6px;border:0;background:rgba(255,255,255,0.03);color:#fff" />
+      </div>
+      <div style="display:flex;gap:8px;align-items:center;">
+        <button id="refresh">Refresh</button>
+        <button id="backup" style="background:#10b981;padding:8px 12px;">💾 Backup</button>
+        <label style="display:flex;align-items:center;gap:6px;padding:8px 12px;background:rgba(255,255,255,0.03);border-radius:8px;cursor:pointer;">
+          <input type="checkbox" id="testModeToggle" style="width:16px;height:16px;cursor:pointer;" />
+          <span style="font-size:14px;">Test Mode</span>
+        </label>
+        <button id="resetTest" class="danger" style="display:none;background:#ff6b35;padding:8px 12px;">🧪 Reset Test Stats</button>
+        <button id="reset" class="danger">Reset All</button>
+      </div>
+    </div>
+
+    <div id="testModeStatus" style="margin-bottom:12px;padding:10px;border-radius:8px;background:rgba(255,165,0,0.1);display:none;font-size:14px;color:#ffa500;border:1px solid rgba(255,165,0,0.3)">
+      ⚠️ <strong>TEST MODE ACTIVE</strong> - Stats are being written to test files. 
+      <a href="/leaderboard/test" target="_blank" style="color:#10b981;text-decoration:underline;margin-left:8px">View Test Leaderboard →</a>
+    </div>
+    <div id="backupStatus" style="margin-bottom:12px;padding:10px;border-radius:8px;background:rgba(255,255,255,0.03);display:none;font-size:14px"></div>
+
+    <div id="winnerCard" style="margin-bottom:12px; display:none"></div>
+
+    <div class="card" id="table">
+      <div class="row header">
+        <div style="width:48px">#</div>
+        <div>Player</div>
+        <div style="text-align:right">Kills</div>
+        <div style="text-align:right">Hits</div>
+        <div style="text-align:right">Wins</div>
+        <div style="text-align:center">Action</div>
+      </div>
+      <div id="rows"></div>
+    </div>
+    
+    <!-- Footer with logo -->
+    <div class="footer">
+      <img src="/client-types/watermarkfin.png" alt="BubbleClash Logo" title="BubbleClash">
+    </div>
+  </div>
+
+  <script>
+    const rowsEl = document.getElementById('rows');
+    const refreshBtn = document.getElementById('refresh');
+    const resetBtn = document.getElementById('reset');
+    const resetTestBtn = document.getElementById('resetTest');
+    const backupBtn = document.getElementById('backup');
+    const backupStatus = document.getElementById('backupStatus');
+    const testModeToggle = document.getElementById('testModeToggle');
+    const testModeStatus = document.getElementById('testModeStatus');
+    const gameSelect = document.getElementById('gameSelect');
+    const deleteGameBtn = document.getElementById('deleteGame');
+    const searchInput = document.getElementById('search');
+    const winnerCard = document.getElementById('winnerCard');
+    const brawlModeSelect = document.getElementById('brawlModeSelect');
+
+    let gamesCache = [];
+    let currentList = [];
+
+    async function fetchTestMode() {
+      try {
+        const res = await fetch('/api/stats/testmode');
+        const data = await res.json();
+        testModeToggle.checked = data.testMode;
+        testModeStatus.style.display = data.testMode ? 'block' : 'none';
+        resetTestBtn.style.display = data.testMode ? 'inline-block' : 'none';
+      } catch (e) {
+        console.error('Failed to fetch test mode status', e);
+      }
+    }
+
+    async function toggleTestMode() {
+      try {
+        const res = await fetch('/api/stats/testmode', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ enabled: testModeToggle.checked })
+        });
+        const data = await res.json();
+        testModeStatus.style.display = data.testMode ? 'block' : 'none';
+        resetTestBtn.style.display = data.testMode ? 'inline-block' : 'none';
+        console.log(`Test mode ${data.testMode ? 'enabled' : 'disabled'}`);
+        // Refresh stats to show test/original data
+        await fetchGames();
+        fetchStatsFor(gameSelect.value || 'combined');
+      } catch (e) {
+        console.error('Failed to toggle test mode', e);
+        testModeToggle.checked = !testModeToggle.checked; // Revert on error
+      }
+    }
+
+    async function createBackup() {
+      backupStatus.style.display = 'block';
+      backupStatus.textContent = 'Creating backup...';
+      backupStatus.style.color = '#fbbf24';
+      try {
+        const res = await fetch('/api/stats/backup', { method: 'POST' });
+        const result = await res.json();
+        if (result.success) {
+          backupStatus.textContent = `✅ Backup created: ${result.files.join(', ')}`;
+          backupStatus.style.color = '#10b981';
+          setTimeout(() => { backupStatus.style.display = 'none'; }, 5000);
+        } else {
+          backupStatus.textContent = `❌ Backup failed: ${result.error}`;
+          backupStatus.style.color = '#ef4444';
+          setTimeout(() => { backupStatus.style.display = 'none'; }, 5000);
+        }
+      } catch (e) {
+        backupStatus.textContent = '❌ Backup failed: Network error';
+        backupStatus.style.color = '#ef4444';
+        setTimeout(() => { backupStatus.style.display = 'none'; }, 5000);
+      }
+    }
+
+    async function resetTestStats() {
+      if (!confirm('⚠️ Reset all test stats? This will clear all test leaderboards and games. This cannot be undone.')) return;
+      try {
+        const res = await fetch('/api/stats/test/reset', { method: 'DELETE' });
+        const result = await res.json();
+        if (result.ok) {
+          alert('✅ Test stats reset successfully');
+          await fetchGames();
+          fetchStatsFor(gameSelect.value || 'combined');
+        } else {
+          alert(`❌ Failed to reset test stats: ${result.error}`);
+        }
+      } catch (e) {
+        console.error('Failed to reset test stats', e);
+        alert('❌ Failed to reset test stats: Network error');
+      }
+    }
+
+    async function deletePlayer(playerKey) {
+      if (!confirm(`Delete player "${decodeURIComponent(playerKey)}" from leaderboard?`)) return;
+      try {
+        const arena = (arenaSelect.value || 'normal');
+        const testMode = testModeToggle.checked;
+        let url = `/api/stats/player?player=${playerKey}&arena=${encodeURIComponent(arena)}&testMode=${testMode}`;
+        if (arena === 'brawl' && brawlModeSelect.value) {
+          url += `&brawlMode=${encodeURIComponent(brawlModeSelect.value)}`;
+        }
+        const res = await fetch(url, { method: 'DELETE' });
+        if (!res.ok) throw new Error('Delete failed');
+        await fetchGames();
+        fetchStatsFor(gameSelect.value || 'combined');
+      } catch (e) {
+        alert('Failed to delete player');
+      }
+    }
+
+    async function deleteGame(gameId) {
+      if (!confirm(`Delete game "${gameId}"?`)) return;
+      try {
+        const arena = (arenaSelect.value || 'normal');
+        const testMode = testModeToggle.checked;
+        const res = await fetch(`/api/stats/game?game=${encodeURIComponent(gameId)}&arena=${encodeURIComponent(arena)}&testMode=${testMode}`, { method: 'DELETE' });
+        if (!res.ok) throw new Error('Delete failed');
+        await fetchGames();
+        fetchStatsFor('combined');
+      } catch (e) {
+        alert('Failed to delete game');
+      }
+    }
+
+    function showWinnerBox(player, meta) {
+      if (!player) { winnerCard.style.display = 'none'; return; }
+      winnerCard.style.display = 'block';
+      const displayName = String(player || '').replace(/^https?:\/\/[^\/]+\//, '').replace(/^\/+/, '').split('/').pop().replace(/\.(png|jpg|jpeg|gif|bmp|webp|svg)$/i, '');
+      winnerCard.innerHTML = `<div class="card" style="padding:12px;display:flex;align-items:center;gap:12px"><div style="width:64px;height:64px;border-radius:50%;display:flex;align-items:center;justify-content:center;background:linear-gradient(135deg,#374151,#111827);color:#fff;font-weight:700">${(displayName||'P').slice(0,2).toUpperCase()}</div><div style="flex:1"><div style="font-weight:700">${displayName}</div><div class="small muted">${meta||''}</div></div></div>`;
+    }
+
+    async function fetchGames() {
+      try {
+        const arena = (arenaSelect.value || 'normal');
+        const testMode = testModeToggle.checked;
+        const res = await fetch(`/api/stats/games?arena=${encodeURIComponent(arena)}&testMode=${testMode}`);
+        const data = await res.json();
+        gamesCache = data || [];
+        // populate select, but preserve current selection if possible
+        const prev = gameSelect.value || 'combined';
+        gameSelect.innerHTML = '';
+        const optA = document.createElement('option');
+        optA.value = 'combined';
+        optA.textContent = 'Combined (All Games)';
+        gameSelect.appendChild(optA);
+        for (let i = 0; i < gamesCache.length; i++) {
+          const g = gamesCache[i];
+          const o = document.createElement('option');
+          o.value = g.id;
+          const dt = g.createdAt ? new Date(g.createdAt).toLocaleString() : g.id;
+          // show friendly names: Game 1, Game 2, ... (value remains the game id)
+          const friendly = `Game ${i + 1}`;
+          o.textContent = `${friendly}`;
+          gameSelect.appendChild(o);
+        }
+        // try to restore previous selection
+        try {
+          if (prev && Array.from(gameSelect.options).some(o => o.value === prev)) {
+            gameSelect.value = prev;
+          } else {
+            gameSelect.value = 'combined';
+          }
+        } catch (e) {}
+      } catch (e) {
+        console.error('failed to load games', e);
+      }
+    }
+
+    async function fetchStatsFor(selection) {
+      try {
+        const arena = (arenaSelect.value || 'normal');
+        const testMode = testModeToggle.checked;
+        let url = `/api/stats?arena=${encodeURIComponent(arena)}&testMode=${testMode}`;
+        if (arena === 'brawl' && brawlModeSelect.value) {
+          url += `&brawlMode=${encodeURIComponent(brawlModeSelect.value)}`;
+        }
+        if (selection && selection !== 'combined') {
+          url = `/api/stats?game=${encodeURIComponent(selection)}&arena=${encodeURIComponent(arena)}&testMode=${testMode}`;
+          if (arena === 'brawl' && brawlModeSelect.value) {
+            url += `&brawlMode=${encodeURIComponent(brawlModeSelect.value)}`;
+          }
+        }
+        const res = await fetch(url);
+        if (!res.ok) throw new Error('network');
+        const data = await res.json();
+        currentList = data || [];
+        renderRows(currentList, arena);
+
+        // winner box: for game-specific, ask server for winner from games cache
+        if (selection && selection !== 'combined') {
+          const gmeta = gamesCache.find(x => x.id === selection);
+          if (gmeta && gmeta.winner) {
+            showWinnerBox(String(gmeta.winner).split('/').pop(), 'Winner (game)');
+          } else if (currentList.length > 0) {
+            showWinnerBox(currentList[0].player, 'Top player');
+          } else showWinnerBox(null);
+        } else {
+          // combined: show top player if available
+          if (currentList.length > 0) showWinnerBox(currentList[0].player, 'Top player (combined)');
+          else showWinnerBox(null);
+        }
+      } catch (e) {
+        console.error(e);
+        rowsEl.innerHTML = '<div class="row"><div class="muted" style="grid-column:1/-1;padding:12px">Failed to load leaderboard</div></div>';
+      }
+    }
+
+    function updateHeader(arena) {
+      const headerRow = document.querySelector('.row.header');
+      if (!headerRow) return;
+      
+      if (arena === 'boss') {
+        headerRow.className = 'row header boss';
+        headerRow.innerHTML = `
+          <div style="width:48px">#</div>
+          <div>Player</div>
+          <div style="text-align:right">Hits</div>
+          <div style="text-align:center">Action</div>
+        `;
+      } else {
+        headerRow.className = 'row header normal';
+        headerRow.innerHTML = `
+          <div style="width:48px">#</div>
+          <div>Player</div>
+          <div style="text-align:right">Kills</div>
+          <div style="text-align:right">Hits</div>
+          <div style="text-align:right">Wins</div>
+          <div style="text-align:center">Action</div>
+        `;
+      }
+    }
+
+    function renderRows(data) {
+      // default to normal if arena not provided
+      const arena = arguments.length > 1 ? arguments[1] : (arenaSelect && arenaSelect.value) || 'normal';
+      updateHeader(arena);
+      const q = (searchInput.value || '').toLowerCase().trim();
+      const filtered = data.filter(r => !q || (String(r.player||'').toLowerCase().includes(q)));
+      if (!filtered || filtered.length === 0) {
+        rowsEl.innerHTML = '<div class="row"><div class="muted" style="grid-column:1/-1;padding:12px">No data yet.</div></div>';
+        return;
+      }
+      if (arena === 'boss') {
+        // boss mode: show hits-only
+        rowsEl.innerHTML = filtered.map((r, i) => {
+          const raw = String(r.player || '');
+          const player = (raw.replace(/^https?:\/\/[^\/]+\//, '').replace(/^\/+/, '').split('/').pop() || raw).replace(/\.(png|jpg|jpeg|gif|bmp|webp|svg)$/i, '');
+          const hits = r.hits || 0;
+          return `<div class="row boss"><div style="width:48px">${i+1}</div><div class="player" title="${r.player}">${player}</div><div style="text-align:right">${hits} hits</div><div style="text-align:center"><button class="danger" style="padding:4px 8px;font-size:12px;" onclick="deletePlayer('${encodeURIComponent(r.player)}')">&times;</button></div></div>`;
+        }).join('');
+      } else {
+        rowsEl.innerHTML = filtered.map((r, i) => {
+          const raw = String(r.player || '');
+          const player = (raw.replace(/^https?:\/\/[^\/]+\//, '').replace(/^\/+/, '').split('/').pop() || raw).replace(/\.(png|jpg|jpeg|gif|bmp|webp|svg)$/i, '');
+          const kills = r.kills || 0;
+          const hits = r.hits || 0;
+          const wins = r.wins || 0;
+          return `<div class="row normal"><div style="width:48px">${i+1}</div><div class="player" title="${r.player}">${player}</div><div style="text-align:right">${kills}</div><div style="text-align:right">${hits}</div><div style="text-align:right">${wins}</div><div style="text-align:center"><button class="danger" style="padding:4px 8px;font-size:12px;" onclick="deletePlayer('${encodeURIComponent(r.player)}')">&times;</button></div></div>`;
+        }).join('');
+      }
+    }
+
+    refreshBtn.addEventListener('click', () => fetchStatsFor(gameSelect.value || 'combined'));
+    backupBtn.addEventListener('click', createBackup);
+    resetTestBtn.addEventListener('click', resetTestStats);
+    testModeToggle.addEventListener('change', toggleTestMode);
+    gameSelect.addEventListener('change', () => fetchStatsFor(gameSelect.value || 'combined'));
+    searchInput.addEventListener('input', () => renderRows(currentList));
+    brawlModeSelect.addEventListener('change', () => fetchStatsFor(gameSelect.value || 'combined'));
+    deleteGameBtn.addEventListener('click', () => {
+      const gameId = gameSelect.value;
+      if (!gameId || gameId === 'combined') {
+        alert('Please select a specific game to delete');
+        return;
+      }
+      deleteGame(gameId);
+    });
+
+    // subtle 3D tilt interaction for admin page
+    (function(){
+      const hero = document.querySelector('.hero') || document.body;
+      const card = document.querySelector('.tilt-card') || document.querySelector('.card');
+      if(!hero || !card) return;
+      hero.addEventListener('pointermove', (e)=>{
+        const rect = hero.getBoundingClientRect();
+        const cx = rect.left + rect.width/2; const cy = rect.top + rect.height/2;
+        const dx = e.clientX - cx; const dy = e.clientY - cy; const rx = -(dy/rect.height)*6; const ry = (dx/rect.width)*8;
+        card.style.transform = `rotateX(${rx}deg) rotateY(${ry}deg) translateZ(8px)`;
+      });
+      hero.addEventListener('pointerleave', ()=>{ if(card) card.style.transform='none'; });
+    })();
+
+    resetBtn.addEventListener('click', async () => {
+      if (!confirm('Reset leaderboard (clears all games and totals)?')) return;
+      try {
+        const arena = (arenaSelect.value || 'normal');
+        const testMode = testModeToggle.checked;
+        const res = await fetch(`/api/stats?arena=${encodeURIComponent(arena)}&testMode=${testMode}`, { method: 'DELETE' });
+        if (!res.ok) throw new Error('Reset failed');
+        await fetchGames();
+        fetchStatsFor('combined');
+      } catch (e) {
+        alert('Reset failed');
+      }
+    });
+
+    // export CSV removed per UI request
+
+    // initial load: fetch games and stats once; further refreshes happen only on user action
+    arenaSelect.addEventListener('change', async () => {
+      const hdr = document.querySelector('.row.header');
+      const arena = (arenaSelect.value || 'normal');
+      
+      // Show/hide brawl mode selector
+      if (arena === 'brawl') {
+        brawlModeSelect.style.display = 'block';
+      } else {
+        brawlModeSelect.style.display = 'none';
+        brawlModeSelect.value = '';
+      }
+      
+      if (hdr) {
+        if (arena === 'boss') {
+          hdr.innerHTML = '<div style="width:48px">#</div><div>Player</div><div style="grid-column:3/-1;text-align:right">Hits</div>';
+        } else {
+          hdr.innerHTML = '<div style="width:48px">#</div><div>Player</div><div style="text-align:right">Kills</div><div style="text-align:right">Hits</div><div style="text-align:right">Wins</div><div style="text-align:center">Action</div>';
+        }
+      }
+      await fetchGames();
+      fetchStatsFor(gameSelect.value || 'combined');
+    });
+
+    (async () => {
+      await fetchTestMode(); // Load test mode status
+      await fetchGames();
+      // initial stats load: respect current selection (default combined)
+      fetchStatsFor(gameSelect.value || 'combined');
+    })();
+  </script>
+</body>
+</html>

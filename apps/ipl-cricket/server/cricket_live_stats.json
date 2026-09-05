@@ -1,0 +1,296 @@
+{
+  "mode": "test",
+  "innings": 1,
+  "over": 7,
+  "ball": 5,
+  "battingTeamIdx": 0,
+  "target": null,
+  "firstInningsScore": 0,
+  "teams": [
+    {
+      "shortName": "DC",
+      "score": 73,
+      "wickets": 7,
+      "ballsFaced": 47,
+      "batting": [
+        {
+          "name": "KL Rahul",
+          "runs": 21,
+          "balls": 14,
+          "fours": 3,
+          "sixes": 0,
+          "status": "out"
+        },
+        {
+          "name": "Pathum Nissanka",
+          "runs": 21,
+          "balls": 8,
+          "fours": 1,
+          "sixes": 2,
+          "status": "out"
+        },
+        {
+          "name": "Nitish Rana",
+          "runs": 0,
+          "balls": 1,
+          "fours": 0,
+          "sixes": 0,
+          "status": "out"
+        },
+        {
+          "name": "Axar Patel",
+          "runs": 1,
+          "balls": 5,
+          "fours": 0,
+          "sixes": 0,
+          "status": "out"
+        },
+        {
+          "name": "Tristan Stubbs",
+          "runs": 7,
+          "balls": 3,
+          "fours": 0,
+          "sixes": 1,
+          "status": "out"
+        },
+        {
+          "name": "David Miller",
+          "runs": 0,
+          "balls": 2,
+          "fours": 0,
+          "sixes": 0,
+          "status": "out"
+        },
+        {
+          "name": "Kyle Jamieson",
+          "runs": 3,
+          "balls": 5,
+          "fours": 0,
+          "sixes": 0,
+          "status": "dnb"
+        },
+        {
+          "name": "Vipraj Nigam",
+          "runs": 3,
+          "balls": 8,
+          "fours": 0,
+          "sixes": 0,
+          "status": "out"
+        },
+        {
+          "name": "Lungi Ngidi",
+          "runs": 2,
+          "balls": 1,
+          "fours": 0,
+          "sixes": 0,
+          "status": "batting"
+        },
+        {
+          "name": "Karun Nair",
+          "runs": 0,
+          "balls": 0,
+          "fours": 0,
+          "sixes": 0,
+          "status": "dnb"
+        },
+        {
+          "name": "Kuldeep Yadav",
+          "runs": 0,
+          "balls": 0,
+          "fours": 0,
+          "sixes": 0,
+          "status": "dnb"
+        }
+      ],
+      "bowling": [
+        {
+          "name": "Kuldeep Yadav",
+          "overs": 0,
+          "ballsInOver": 0,
+          "maidens": 0,
+          "runs": 0,
+          "wickets": 0
+        },
+        {
+          "name": "Lungi Ngidi",
+          "overs": 0,
+          "ballsInOver": 0,
+          "maidens": 0,
+          "runs": 0,
+          "wickets": 0
+        },
+        {
+          "name": "Axar Patel",
+          "overs": 0,
+          "ballsInOver": 0,
+          "maidens": 0,
+          "runs": 0,
+          "wickets": 0
+        },
+        {
+          "name": "Kyle Jamieson",
+          "overs": 0,
+          "ballsInOver": 0,
+          "maidens": 0,
+          "runs": 0,
+          "wickets": 0
+        },
+        {
+          "name": "Vipraj Nigam",
+          "overs": 0,
+          "ballsInOver": 0,
+          "maidens": 0,
+          "runs": 0,
+          "wickets": 0
+        }
+      ]
+    },
+    {
+      "shortName": "PBKS",
+      "score": 0,
+      "wickets": 0,
+      "ballsFaced": 0,
+      "batting": [
+        {
+          "name": "Prabhsimran Singh",
+          "runs": 0,
+          "balls": 0,
+          "fours": 0,
+          "sixes": 0,
+          "status": "dnb"
+        },
+        {
+          "name": "Shreyas Iyer",
+          "runs": 0,
+          "balls": 0,
+          "fours": 0,
+          "sixes": 0,
+          "status": "dnb"
+        },
+        {
+          "name": "Cooper Connolly",
+          "runs": 0,
+          "balls": 0,
+          "fours": 0,
+          "sixes": 0,
+          "status": "dnb"
+        },
+        {
+          "name": "Nehal Wadhera",
+          "runs": 0,
+          "balls": 0,
+          "fours": 0,
+          "sixes": 0,
+          "status": "dnb"
+        },
+        {
+          "name": "Priyansh Arya",
+          "runs": 0,
+          "balls": 0,
+          "fours": 0,
+          "sixes": 0,
+          "status": "dnb"
+        },
+        {
+          "name": "Marcus Stoinis",
+          "runs": 0,
+          "balls": 0,
+          "fours": 0,
+          "sixes": 0,
+          "status": "dnb"
+        },
+        {
+          "name": "Marco Jansen",
+          "runs": 0,
+          "balls": 0,
+          "fours": 0,
+          "sixes": 0,
+          "status": "dnb"
+        },
+        {
+          "name": "Xavier Bartlett",
+          "runs": 0,
+          "balls": 0,
+          "fours": 0,
+          "sixes": 0,
+          "status": "dnb"
+        },
+        {
+          "name": "Shashank Singh",
+          "runs": 0,
+          "balls": 0,
+          "fours": 0,
+          "sixes": 0,
+          "status": "dnb"
+        },
+        {
+          "name": "Arshdeep Singh",
+          "runs": 0,
+          "balls": 0,
+          "fours": 0,
+          "sixes": 0,
+          "status": "dnb"
+        },
+        {
+          "name": "Yuzvendra Chahal",
+          "runs": 0,
+          "balls": 0,
+          "fours": 0,
+          "sixes": 0,
+          "status": "dnb"
+        }
+      ],
+      "bowling": [
+        {
+          "name": "Yuzvendra Chahal",
+          "overs": 2,
+          "ballsInOver": 0,
+          "maidens": 0,
+          "runs": 17,
+          "wickets": 1
+        },
+        {
+          "name": "Arshdeep Singh",
+          "overs": 2,
+          "ballsInOver": 0,
+          "maidens": 0,
+          "runs": 24,
+          "wickets": 2
+        },
+        {
+          "name": "Marco Jansen",
+          "overs": 2,
+          "ballsInOver": 0,
+          "maidens": 0,
+          "runs": 21,
+          "wickets": 3
+        },
+        {
+          "name": "Xavier Bartlett",
+          "overs": 1,
+          "ballsInOver": 0,
+          "maidens": 0,
+          "runs": 9,
+          "wickets": 0
+        },
+        {
+          "name": "Marcus Stoinis",
+          "overs": 0,
+          "ballsInOver": 5,
+          "maidens": 0,
+          "runs": 2,
+          "wickets": 1
+        },
+        {
+          "name": "Cooper Connolly",
+          "overs": 0,
+          "ballsInOver": 0,
+          "maidens": 0,
+          "runs": 0,
+          "wickets": 0
+        }
+      ]
+    }
+  ],
+  "updatedAt": "2026-09-05T07:07:14.503Z"
+}
