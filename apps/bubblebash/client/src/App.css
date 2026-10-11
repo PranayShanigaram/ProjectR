@@ -9,6 +9,137 @@
   position: relative;
 }
 
+/* Bubble Bash in-game visual skin: it leaves the gameplay controls and score
+   rendering untouched, but places them in the same neon-cosmic treatment as
+   the product flow. */
+.arena-page {
+  padding-top: 54px;
+  box-sizing: border-box;
+  background: #030818;
+}
+.arena-page::before {
+  content: "";
+  position: absolute;
+  inset: 54px 0 0;
+  pointer-events: none;
+  background: radial-gradient(circle at 35% 50%, transparent 0 25%, rgba(4,0,26,.42) 70%, rgba(0,0,10,.8));
+  z-index: 0;
+}
+.bb-game-topbar {
+  position: absolute;
+  inset: 0 0 auto;
+  height: 54px;
+  display: flex;
+  align-items: center;
+  gap: clamp(20px, 4vw, 60px);
+  padding: 0 18px;
+  box-sizing: border-box;
+  color: #fff;
+  border-bottom: 1px solid rgba(64,125,255,.43);
+  background: linear-gradient(90deg, rgba(2,11,35,.98), rgba(11,5,47,.9));
+  box-shadow: 0 3px 20px rgba(0,0,0,.5);
+  z-index: 90;
+  font-size: 12px;
+}
+.bb-game-topbar strong { font-size: 15px; }
+.bb-game-topbar strong span { color: #00cfff; font-size: 21px; }
+.bb-game-topbar b { display: grid; gap: 2px; font-size: 11px; }
+.bb-game-topbar em, .bb-game-topbar small { font-size: 10px; color: #b6c8ef; font-style: normal; }
+.bb-game-title { color: #fff; }
+.arena-playfield {
+  z-index: 1;
+  margin: auto 0 auto 10px !important;
+  height: auto !important;
+  max-width: min(62vw, 820px) !important;
+  border: 0 !important;
+  background: transparent !important;
+  filter: none;
+}
+.arena-playfield { isolation: isolate; }
+.arena-playfield::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  border: 3px solid #ff5272;
+  border-radius: inherit;
+  clip-path: inherit;
+  box-shadow: inset 0 0 24px rgba(255,20,90,.22), 0 0 10px #ff3156, 0 0 28px rgba(255,39,100,.86);
+  z-index: 2;
+}
+.arena-layout { z-index: 1; padding-top: 0; }
+.bb-arena-leaderboard {
+  z-index: 2;
+  height: min(82vh, 780px) !important;
+  margin: auto 0 !important;
+}
+.arena-controls-shell { z-index: 2 !important; margin: auto 12px auto 14px !important; }
+.arena-controls-panel button { box-shadow: none; }
+@media (max-width: 900px) {
+  .bb-game-topbar { gap: 14px; }
+  .arena-page > .arena { margin-left: 4px !important; }
+  .arena-controls-shell { min-width: 240px !important; width: 250px !important; }
+}
+
+/* Final live-arena composition: no duplicate status strip, a full-height score
+   panel, and an SVG edge that follows the active arena geometry exactly. */
+.arena-page { padding-top: 0 !important; }
+.arena-page::before { inset: 0 !important; background: transparent !important; }
+.bb-game-topbar { display: none; }
+.arena-layout { height: 100vh !important; align-items: center !important; }
+.arena-shape-outline {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  pointer-events: none;
+  z-index: 1300;
+  overflow: visible;
+  filter: drop-shadow(0 0 3px var(--arena-glow-primary, #ff3156)) drop-shadow(0 0 10px var(--arena-glow-primary, #ff3156)) drop-shadow(0 0 22px var(--arena-glow-secondary, rgba(255,20,95,.85)));
+}
+.arena-shape-outline > * { stroke-linejoin: round; }
+.arena-playfield::after { display: none; }
+.arena-playfield.shape-circle,
+.arena-playfield.shape-ring { aspect-ratio: 1 / 1 !important; }
+.arena-playfield.shape-circle > div,
+.arena-playfield.shape-square > div,
+.arena-playfield.shape-triangle > div,
+.arena-playfield.shape-octagon > div,
+.arena-playfield.shape-star > div,
+.arena-playfield.shape-heart > div,
+.arena-playfield.shape-hexagram > div,
+.arena-playfield.shape-crescent > div,
+.arena-playfield.shape-ring > div,
+.arena-playfield.shape-rounded_square > div,
+.arena-playfield.shape-clover > div,
+.arena-playfield.shape-gear > div,
+.arena-playfield.shape-shield > div { width: 100%; height: 100%; }
+.bb-arena-leaderboard {
+  height: calc(100vh - 24px) !important;
+  margin: 12px 0 !important;
+  align-self: stretch;
+}
+.arena-controls-shell { align-self: center; }
+
+/* Overrides for legacy `.arena` rules lower in this file. The CSS box, canvas
+   and SVG outline must share exactly one coordinate system. */
+.arena-playfield {
+  flex: 0 0 auto !important;
+  width: min(65vw, calc(100vw - 540px)) !important;
+  height: calc(100vh - 28px) !important;
+  max-width: none !important;
+  max-height: none !important;
+  margin: 14px 0 14px 8px !important;
+  background: transparent !important;
+}
+.arena-playfield.shape-circle,
+.arena-playfield.shape-ring {
+  width: min(calc(100vh - 36px), calc(100vw - 540px)) !important;
+  height: min(calc(100vh - 36px), calc(100vw - 540px)) !important;
+  margin: auto 0 auto 8px !important;
+}
+.arena-playfield > div:first-child { width: 100%; height: 100%; }
+
 /* Drawer */
 .controls-drawer {
   position: fixed;

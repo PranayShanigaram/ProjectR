@@ -1,7 +1,10 @@
 // src/pages/ArenaPage.tsx
 import React, { useEffect, useLayoutEffect, useRef, useState } from "react";
+import { useSearchParams } from "react-router-dom";
 
 import "../App.css";
+import "./ArenaVisual.css";
+import { ARENA_THEME_IMAGES } from "./arenaThemeImages";
 import statsClient, { recordHit, recordKill, setSuperbubblePlayer } from "../utils/statsClient";
 
 const watermarkUrl = new URL('../types/watermarkfin.png', import.meta.url).href; 
@@ -17,7 +20,24 @@ export interface BubbleData {
   vy: number;
   id: number;
   name?: string;
+  avatar?: number;
 }
+
+type MatchPlayer = {
+  name?: string;
+  username?: string;
+  playerName?: string;
+  avatar?: number;
+  hp?: number;
+  imageName?: string;
+  bossImageName?: string;
+  image?: string;
+  imageSrc?: string;
+  powers?: Array<{ key: keyof typeof SUPER_BUBBLE_TYPES }>;
+  role?: "boss" | "solo" | "many" | "normal";
+};
+
+type MatchPayload = { mode: string; arena: string; soloPlayer?: string; players: MatchPlayer[] };
 
 export interface Spike {
   x: number;
@@ -33,7 +53,7 @@ interface SuperPower {
 
 /* ---------- Constants ---------- */
 
-const SUPER_BUBBLE_TYPES: { [k: string]: SuperPower } = {
+export const SUPER_BUBBLE_TYPES: { [k: string]: SuperPower } = {
   // CLASSIC WEAPONS (12 Powers)
   missile: { name: "Missile", damage: 8 },
   bomb: { name: "Bomb", damage: 7.5 },
@@ -148,6 +168,28 @@ const SUPER_BUBBLE_TYPES: { [k: string]: SuperPower } = {
   dimension_rift: { name: "Dimension Rift", damage: 8.5 },
 };
 
+// Curated set of genuine, visually-distinct powers whose on-canvas shape clearly
+// matches their name. The full catalogue above is kept intact (damage maps,
+// rendering, and types all still resolve every key); only the powers listed here
+// are surfaced to players in the shop, settings panels, and random selection.
+export const AVAILABLE_POWER_KEYS = [
+  // Classic weapons
+  "missile", "rocket", "drone", "bomb", "grenade", "laser", "flamethrower", "plasma",
+  "emp_pulse", "sonic_boom", "shockwave", "acid_spray",
+  // Original
+  "arrow", "bullet", "kunai", "shuriken", "katana", "energy_blast", "ice_shard",
+  // Anime / signature
+  "kamehameha", "rasengan", "chidori", "spirit_bomb", "phoenix_strike", "void_slash",
+  "getsuga_tensho", "destructo_disk",
+  // Marvel / target / arena
+  "mjolnir_strike", "web_shot",
+  // Self / arena / control
+  "sand_shield", "potential_unlock", "shadow_clone", "time_stop_burst",
+  "infinity_snap", "dimension_rift", "force_push", "atomic_breath",
+] as (keyof typeof SUPER_BUBBLE_TYPES)[];
+
+const AVAILABLE_POWER_KEY_SET = new Set<string>(AVAILABLE_POWER_KEYS as string[]);
+
 const ARENA_TYPES = {
   NORMAL: "normal",
   BOSS: "boss",
@@ -155,6 +197,7 @@ const ARENA_TYPES = {
 } as const;
 
 const ARENA_SHAPES = {
+  // Original set (kept intact — do not change geometry/feel)
   RECTANGLE: "rectangle",
   CIRCLE: "circle",
   HEXAGON: "hexagon",
@@ -165,22 +208,435 @@ const ARENA_SHAPES = {
   SPIRAL: "spiral",
   FUNNEL: "funnel",
   WAVE: "wave",
+  // Catalogue additions (spec section 3)
+  SQUARE: "square",
+  OVAL: "oval",
+  TRIANGLE: "triangle",
+  OCTAGON: "octagon",
+  STAR: "star",
+  HEART: "heart",
+  TRAPEZOID: "trapezoid",
+  PARALLELOGRAM: "parallelogram",
+  HEXAGRAM: "hexagram",
+  CRESCENT: "crescent",
+  RING: "ring",
+  ROUNDED_SQUARE: "rounded_square",
+  CAPSULE: "capsule",
+  BOWTIE: "bowtie",
+  CLOVER: "clover",
+  GEAR: "gear",
+  SHIELD: "shield",
 } as const;
 
 type ArenaShape = typeof ARENA_SHAPES[keyof typeof ARENA_SHAPES];
 
-const ARENA_SHAPE_INFO: { [key in ArenaShape]: { name: string; description: string } } = {
-  [ARENA_SHAPES.RECTANGLE]: { name: "Rectangle", description: "Classic rectangular arena" },
-  [ARENA_SHAPES.CIRCLE]: { name: "Circle", description: "Round arena with curved walls" },
-  [ARENA_SHAPES.HEXAGON]: { name: "Hexagon", description: "Six-sided arena" },
-  [ARENA_SHAPES.HOURGLASS]: { name: "Hourglass", description: "Narrow middle passage" },
-  [ARENA_SHAPES.DIAMOND]: { name: "Diamond", description: "Rotated square shape" },
-  [ARENA_SHAPES.CROSS]: { name: "Cross", description: "Plus-shaped arena" },
-  [ARENA_SHAPES.PENTAGON]: { name: "Pentagon", description: "Five-sided arena" },
-  [ARENA_SHAPES.SPIRAL]: { name: "Spiral", description: "Rounded rectangle shape" },
-  [ARENA_SHAPES.FUNNEL]: { name: "Funnel", description: "Wide top, narrow bottom" },
-  [ARENA_SHAPES.WAVE]: { name: "Wave", description: "Wavy boundaries" },
+// Only shapes whose collision math assumes a single radius (true circles) need an
+// equal-radius square box. Every other shape derives its boundary from normalized
+// polygon points scaled independently by width/height, so it can fill the full
+// rectangular arena box (using all the freed-up space) without breaking physics.
+const SQUARE_ARENA_SHAPES = new Set<string>([
+  ARENA_SHAPES.CIRCLE, ARENA_SHAPES.RING,
+]);
+const isSquareArenaShape = (shape: string) => SQUARE_ARENA_SHAPES.has(shape);
+
+// Build a regular / parametric polygon in normalized [0..1] coordinates.
+const buildRegularPolygon = (sides: number, rotationDeg: number, rx = 0.5, ry = 0.5): [number, number][] => {
+  const pts: [number, number][] = [];
+  const rot = (rotationDeg * Math.PI) / 180;
+  for (let i = 0; i < sides; i++) {
+    const a = rot + (i / sides) * Math.PI * 2;
+    pts.push([0.5 + rx * Math.cos(a), 0.5 + ry * Math.sin(a)]);
+  }
+  return pts;
 };
+const buildStarPolygon = (points: number, outer: number, inner: number, rotationDeg: number): [number, number][] => {
+  const pts: [number, number][] = [];
+  const rot = (rotationDeg * Math.PI) / 180;
+  for (let i = 0; i < points * 2; i++) {
+    const r = i % 2 === 0 ? outer : inner;
+    const a = rot + (i / (points * 2)) * Math.PI * 2;
+    pts.push([0.5 + r * Math.cos(a), 0.5 + r * Math.sin(a)]);
+  }
+  return pts;
+};
+const buildEllipsePolygon = (rx: number, ry: number, segments = 48): [number, number][] => {
+  const pts: [number, number][] = [];
+  for (let i = 0; i < segments; i++) {
+    const a = (i / segments) * Math.PI * 2;
+    pts.push([0.5 + rx * Math.cos(a), 0.5 + ry * Math.sin(a)]);
+  }
+  return pts;
+};
+// Bumpy circle whose radius is modulated by cos(lobes*θ) — used for clover/gear.
+const buildLobedPolygon = (lobes: number, base: number, amp: number, segments: number, rotationDeg = 0): [number, number][] => {
+  const pts: [number, number][] = [];
+  const rot = (rotationDeg * Math.PI) / 180;
+  for (let i = 0; i < segments; i++) {
+    const a = rot + (i / segments) * Math.PI * 2;
+    const r = base + amp * Math.cos(lobes * a);
+    pts.push([0.5 + r * Math.cos(a), 0.5 + r * Math.sin(a)]);
+  }
+  return pts;
+};
+// Clover: exact union boundary of 4 overlapping circles (N/E/S/W), so each lobe
+// is a real rounded circle and the notches between lobes are true concave cuts.
+const buildCloverPolygon = (lobeR: number, offset: number, segments: number): [number, number][] => {
+  const centers: [number, number][] = [[offset, 0], [-offset, 0], [0, offset], [0, -offset]];
+  const pts: [number, number][] = [];
+  for (let i = 0; i < segments; i++) {
+    const a = (i / segments) * Math.PI * 2;
+    const dx = Math.cos(a), dy = Math.sin(a);
+    let maxT = 0;
+    for (const [cx, cy] of centers) {
+      const k = dx * cx + dy * cy;
+      const discriminant = lobeR * lobeR - (cx * cx + cy * cy - k * k);
+      if (discriminant < 0) continue;
+      const t = k + Math.sqrt(discriminant);
+      if (t > maxT) maxT = t;
+    }
+    pts.push([0.5 + maxT * dx, 0.5 + maxT * dy]);
+  }
+  return pts;
+};
+// Alternating outer/inner radius teeth for a cog silhouette.
+const buildGearPolygon = (teeth: number, outer: number, inner: number): [number, number][] => {
+  const pts: [number, number][] = [];
+  const steps = teeth * 4;
+  for (let i = 0; i < steps; i++) {
+    const phase = i % 4;
+    const r = phase === 0 || phase === 1 ? outer : inner;
+    const a = (i / steps) * Math.PI * 2 - Math.PI / 2;
+    pts.push([0.5 + r * Math.cos(a), 0.5 + r * Math.sin(a)]);
+  }
+  return pts;
+};
+// Rounded-rectangle outline as a polygon with arc-approximated corners.
+const buildRoundedRectPolygon = (radius: number, cornerSteps = 6): [number, number][] => {
+  const r = radius;
+  const pts: [number, number][] = [];
+  const corners: [number, number, number][] = [
+    [r, r, 180], [1 - r, r, 270], [1 - r, 1 - r, 0], [r, 1 - r, 90],
+  ];
+  for (const [cx, cy, start] of corners) {
+    for (let s = 0; s <= cornerSteps; s++) {
+      const a = ((start + (s / cornerSteps) * 90) * Math.PI) / 180;
+      pts.push([cx + r * Math.cos(a), cy + r * Math.sin(a)]);
+    }
+  }
+  return pts;
+};
+// Heart: dense samples of the classic parametric heart curve give smooth,
+// rounded lobes and sides instead of a faceted straight-edge polygon.
+const buildHeartPolygon = (): [number, number][] => {
+  const segs = 120;
+  const raw: [number, number][] = [];
+  for (let i = 0; i < segs; i++) {
+    const t = (i / segs) * Math.PI * 2;
+    const rx = 16 * Math.pow(Math.sin(t), 3);
+    const ry = 13 * Math.cos(t) - 5 * Math.cos(2 * t) - 2 * Math.cos(3 * t) - Math.cos(4 * t);
+    raw.push([rx, ry]);
+  }
+  let xMin = Infinity, xMax = -Infinity, yMin = Infinity, yMax = -Infinity;
+  for (const [rx, ry] of raw) {
+    if (rx < xMin) xMin = rx;
+    if (rx > xMax) xMax = rx;
+    if (ry < yMin) yMin = ry;
+    if (ry > yMax) yMax = ry;
+  }
+  const pad = 0.05;
+  const span = 1 - pad * 2;
+  return raw.map(([rx, ry]) => [
+    pad + ((rx - xMin) / (xMax - xMin)) * span,
+    // yMax (lobes) -> top (0); yMin (bottom point) -> bottom (1)
+    pad + ((yMax - ry) / (yMax - yMin)) * span,
+  ]);
+};
+
+// Crescent: exact outer/inner-circle intersections create a clean moon silhouette.
+const buildCrescentPolygon = (): [number, number][] => {
+  const pts: [number, number][] = [];
+  const ocx = 0.5, ocy = 0.5, outerRadius = 0.46;
+  const icx = 0.68, icy = 0.5, innerRadius = 0.38;
+  const distance = icx - ocx;
+  const intersectionX = (distance * distance + outerRadius * outerRadius - innerRadius * innerRadius) / (2 * distance);
+  const outerAngle = Math.acos(intersectionX / outerRadius);
+  const innerAngle = Math.acos((intersectionX - distance) / innerRadius);
+  const segs = 56;
+  // Outer arc travels around the left side from the upper intersection to the lower one.
+  const oStart = -outerAngle, oEnd = -Math.PI * 2 + outerAngle;
+  for (let i = 0; i <= segs; i++) {
+    const a = oStart + (i / segs) * (oEnd - oStart);
+    pts.push([ocx + outerRadius * Math.cos(a), ocy + outerRadius * Math.sin(a)]);
+  }
+  // Inner arc returns through the bite's left side, preserving a deep, rounded cavity.
+  const iStart = innerAngle, iEnd = Math.PI * 2 - innerAngle;
+  for (let i = 0; i <= segs; i++) {
+    const a = iStart + (i / segs) * (iEnd - iStart);
+    pts.push([icx + innerRadius * Math.cos(a), icy + innerRadius * Math.sin(a)]);
+  }
+  return pts;
+};
+
+// Normalized [0..1] polygon per shape. Single source of truth for collision
+// vertices, CSS clip-path, and the neon SVG outline. Circle stays special-cased.
+// Ring's donut geometry (fraction of the min container span) so the mask,
+// outline, spike placement, and collision all draw the exact same tube.
+export const RING_OUTER_FRAC = 0.48;
+export const RING_INNER_FRAC = 0.17;
+
+export const SHAPE_POLYGONS: { [key: string]: [number, number][] } = {
+  [ARENA_SHAPES.RECTANGLE]: [[0, 0], [1, 0], [1, 1], [0, 1]],
+  [ARENA_SHAPES.SQUARE]: [[0, 0], [1, 0], [1, 1], [0, 1]],
+  [ARENA_SHAPES.HEXAGON]: [[0.5, 0], [1, 0.25], [1, 0.75], [0.5, 1], [0, 0.75], [0, 0.25]],
+  [ARENA_SHAPES.PENTAGON]: [[0.5, 0], [1, 0.38], [0.82, 1], [0.18, 1], [0, 0.38]],
+  [ARENA_SHAPES.DIAMOND]: [[0.5, 0], [1, 0.5], [0.5, 1], [0, 0.5]],
+  [ARENA_SHAPES.HOURGLASS]: [[0, 0], [1, 0], [0.7, 0.5], [1, 1], [0, 1], [0.3, 0.5]],
+  [ARENA_SHAPES.FUNNEL]: [[0, 0], [1, 0], [0.8, 1], [0.2, 1]],
+  [ARENA_SHAPES.CROSS]: [
+    [0.4, 0], [0.6, 0], [0.6, 0.4], [1, 0.4], [1, 0.6], [0.6, 0.6],
+    [0.6, 1], [0.4, 1], [0.4, 0.6], [0, 0.6], [0, 0.4], [0.4, 0.4],
+  ],
+  [ARENA_SHAPES.WAVE]: [
+    [0, 0.1], [0.1, 0], [0.2, 0.05], [0.3, 0], [0.4, 0.05], [0.5, 0], [0.6, 0.05],
+    [0.7, 0], [0.8, 0.05], [0.9, 0], [1, 0.1], [1, 0.9], [0.9, 1], [0.8, 0.95],
+    [0.7, 1], [0.6, 0.95], [0.5, 1], [0.4, 0.95], [0.3, 1], [0.2, 0.95], [0.1, 1], [0, 0.9],
+  ],
+  [ARENA_SHAPES.TRIANGLE]: [[0.5, 0.02], [0.98, 0.96], [0.02, 0.96]],
+  [ARENA_SHAPES.OCTAGON]: [
+    [0.3, 0], [0.7, 0], [1, 0.3], [1, 0.7], [0.7, 1], [0.3, 1], [0, 0.7], [0, 0.3],
+  ],
+  [ARENA_SHAPES.STAR]: buildStarPolygon(5, 0.5, 0.21, -90),
+  [ARENA_SHAPES.HEXAGRAM]: buildStarPolygon(6, 0.5, 0.27, -90),
+  [ARENA_SHAPES.TRAPEZOID]: [[0.2, 0], [0.8, 0], [1, 1], [0, 1]],
+  [ARENA_SHAPES.PARALLELOGRAM]: [[0.25, 0], [1, 0], [0.75, 1], [0, 1]],
+  [ARENA_SHAPES.BOWTIE]: [[0, 0], [0.5, 0.42], [1, 0], [1, 1], [0.5, 0.58], [0, 1]],
+  [ARENA_SHAPES.SHIELD]: [
+    [0.5, 0], [0.95, 0.14], [0.95, 0.5], [0.78, 0.82], [0.5, 1], [0.22, 0.82], [0.05, 0.5], [0.05, 0.14],
+  ],
+  [ARENA_SHAPES.HEART]: buildHeartPolygon(),
+  [ARENA_SHAPES.OVAL]: buildEllipsePolygon(0.5, 0.42, 40),
+  [ARENA_SHAPES.RING]: buildEllipsePolygon(RING_OUTER_FRAC, RING_OUTER_FRAC, 40),
+  [ARENA_SHAPES.CAPSULE]: buildRoundedRectPolygon(0.28, 8),
+  [ARENA_SHAPES.ROUNDED_SQUARE]: buildRoundedRectPolygon(0.16, 6),
+  [ARENA_SHAPES.SPIRAL]: buildRoundedRectPolygon(0.06, 4),
+  [ARENA_SHAPES.CLOVER]: buildCloverPolygon(0.32, 0.17, 72),
+  [ARENA_SHAPES.GEAR]: buildGearPolygon(10, 0.5, 0.32),
+  [ARENA_SHAPES.CRESCENT]: buildCrescentPolygon(),
+};
+
+const polygonToClipPath = (poly: [number, number][]): string =>
+  `polygon(${poly.map(([x, y]) => `${(x * 100).toFixed(2)}% ${(y * 100).toFixed(2)}%`).join(", ")})`;
+const polygonToSvgPoints = (poly: [number, number][]): string =>
+  poly.map(([x, y]) => `${(x * 100).toFixed(2)},${(y * 100).toFixed(2)}`).join(" ");
+
+const ARENA_SHAPE_INFO: { [key in ArenaShape]: { name: string; description: string } } = {
+  [ARENA_SHAPES.SQUARE]: { name: "Square", description: "The classic. Balanced and simple." },
+  [ARENA_SHAPES.RECTANGLE]: { name: "Rectangle", description: "Wider space, more room to dodge." },
+  [ARENA_SHAPES.CIRCLE]: { name: "Circle", description: "No corners. Pure skill." },
+  [ARENA_SHAPES.OVAL]: { name: "Oval", description: "Similar to circle but wider." },
+  [ARENA_SHAPES.TRIANGLE]: { name: "Triangle", description: "Tight space. High intensity." },
+  [ARENA_SHAPES.PENTAGON]: { name: "Pentagon", description: "A unique 5-sided challenge." },
+  [ARENA_SHAPES.HEXAGON]: { name: "Hexagon", description: "Smooth flow with 6 sides." },
+  [ARENA_SHAPES.OCTAGON]: { name: "Octagon", description: "A classic combat shape." },
+  [ARENA_SHAPES.DIAMOND]: { name: "Diamond", description: "Fast-paced and dynamic." },
+  [ARENA_SHAPES.STAR]: { name: "Star", description: "Stylish and unpredictable." },
+  [ARENA_SHAPES.CROSS]: { name: "Cross", description: "Fight across multiple lanes." },
+  [ARENA_SHAPES.HEART]: { name: "Heart", description: "For a fun and unique twist." },
+  [ARENA_SHAPES.TRAPEZOID]: { name: "Trapezoid", description: "Angles add a new challenge." },
+  [ARENA_SHAPES.PARALLELOGRAM]: { name: "Parallelogram", description: "A tilted battleground." },
+  [ARENA_SHAPES.HEXAGRAM]: { name: "Hexagram", description: "Complex and exciting." },
+  [ARENA_SHAPES.CRESCENT]: { name: "Crescent", description: "Open and tactical." },
+  [ARENA_SHAPES.RING]: { name: "Ring", description: "Fight around the center." },
+  [ARENA_SHAPES.ROUNDED_SQUARE]: { name: "Rounded Square", description: "Classic with smooth edges." },
+  [ARENA_SHAPES.CAPSULE]: { name: "Capsule", description: "Sleek and modern." },
+  [ARENA_SHAPES.HOURGLASS]: { name: "Hourglass", description: "Narrow middle, high tension." },
+  [ARENA_SHAPES.BOWTIE]: { name: "Bowtie", description: "Unique and unpredictable." },
+  [ARENA_SHAPES.CLOVER]: { name: "Clover", description: "A playful arena shape." },
+  [ARENA_SHAPES.GEAR]: { name: "Gear", description: "Obstacle-style edges." },
+  [ARENA_SHAPES.SHIELD]: { name: "Shield", description: "Defend your ground." },
+  [ARENA_SHAPES.SPIRAL]: { name: "Spiral", description: "Rounded rectangle shape." },
+  [ARENA_SHAPES.FUNNEL]: { name: "Funnel", description: "Wide top, narrow bottom." },
+  [ARENA_SHAPES.WAVE]: { name: "Wave", description: "Wavy boundaries." },
+};
+
+// ============================================================================
+// ARENA THEMES (spec section 2) — visual appearance only, never gameplay stats.
+// Each theme supplies a neon glow palette [primary, secondary], a CSS background
+// for the playfield surface, and an inner fill tint. Backgrounds are pure CSS
+// (gradients) so they stay performant and self-contained.
+// ============================================================================
+type ArenaThemeDef = {
+  key: string;
+  name: string;
+  description: string;
+  glow: [string, string];
+  background: string;
+  inside: string;
+};
+export const ARENA_THEMES: ArenaThemeDef[] = [
+  {
+    key: "galaxy", name: "Galaxy Core",
+    description: "A cosmic battlefield with drifting nebula energy.",
+    glow: ["#a855f7", "#4263ff"],
+    background:
+      "radial-gradient(120% 120% at 30% 20%, rgba(124,77,255,0.55), rgba(20,12,48,0) 55%)," +
+      "radial-gradient(120% 120% at 75% 80%, rgba(0,150,255,0.45), rgba(10,8,30,0) 55%)," +
+      "radial-gradient(circle at 60% 40%, rgba(255,60,172,0.25), rgba(0,0,0,0) 45%)," +
+      "linear-gradient(160deg, #120a2e, #0a0820 70%, #05040f)",
+    inside: "#0c0722",
+  },
+  {
+    key: "frozen", name: "Frozen Crystal",
+    description: "Slippery ice, glowing crystals, and a cold, premium feel.",
+    glow: ["#7ee8ff", "#2f6bff"],
+    background:
+      "radial-gradient(120% 120% at 25% 15%, rgba(120,220,255,0.4), rgba(10,25,45,0) 55%)," +
+      "linear-gradient(160deg, #0e2740, #0a2036 70%, #06131f)",
+    inside: "#0b2135",
+  },
+  {
+    key: "volcanic", name: "Volcanic Rift",
+    description: "Molten edges, lava cracks, and intense heat effects.",
+    glow: ["#ff5a2c", "#ffb62c"],
+    background:
+      "radial-gradient(120% 120% at 50% 100%, rgba(255, 90, 20, 0.36), rgba(30,8,4,0) 55%)," +
+      "linear-gradient(160deg, #23100a, #1a0b07 70%, #0d0503)",
+    inside: "#1a0b06",
+  },
+  {
+    key: "grass", name: "Grass Field",
+    description: "Fresh green grass with a clean white border.",
+    glow: ["#7CFC66", "#22c55e"],
+    background: "linear-gradient(160deg, #1f5f2a, #17491f 70%, #0f3315)",
+    inside: "#164a1e",
+  },
+  {
+    key: "industrial", name: "Industrial Zone",
+    description: "Grey metal panels with yellow/black hazard accents.",
+    glow: ["#ffd21f", "#7a7a7a"],
+    background:
+      "repeating-linear-gradient(45deg, rgba(255,210,31,0.05) 0 22px, rgba(0,0,0,0) 22px 44px)," +
+      "linear-gradient(160deg, #2b2d31, #212327 70%, #17181b)",
+    inside: "#212327",
+  },
+  {
+    key: "desert", name: "Desert Arena",
+    description: "Warm sand-colored floor under an open sky.",
+    glow: ["#ffd58a", "#e0a044"],
+    background: "linear-gradient(160deg, #a97a45ab, #8a613699 70%, #6b4a28ab)",
+    inside: "#8a6136c0",
+  },
+  {
+    key: "ice", name: "Ice Arena",
+    description: "Light-blue cracked ice, crisp and bright.",
+    glow: ["#bfe9ff", "#6fb7ff"],
+    background: "linear-gradient(160deg, #cfe8f7, #a9d3ec 70%, #86bce0)",
+    inside: "#bcdcf0",
+  },
+  {
+    key: "space", name: "Space Arena",
+    description: "Minimal dark space with distant stars.",
+    glow: ["#8ab4ff", "#4263ff"],
+    background:
+      "radial-gradient(1px 1px at 20% 30%, #fff, rgba(0,0,0,0) 60%)," +
+      "radial-gradient(1px 1px at 70% 60%, #cfe0ff, rgba(0,0,0,0) 60%)," +
+      "radial-gradient(1px 1px at 45% 80%, #fff, rgba(0,0,0,0) 60%)," +
+      "linear-gradient(160deg, #0a0e1a, #070912 70%, #04050c)",
+    inside: "#070912",
+  },
+  {
+    key: "wooden", name: "Wooden Deck",
+    description: "Warm wooden planks underfoot.",
+    glow: ["#e0a86b", "#a9743c"],
+    background:
+      "repeating-linear-gradient(90deg, rgba(0,0,0,0.12) 0 2px, rgba(0,0,0,0) 2px 90px)," +
+      "linear-gradient(160deg, #7a4f2a, #6b4423 70%, #55351b)",
+    inside: "#6b4423",
+  },
+  {
+    key: "neon", name: "Neon Grid",
+    description: "Dark futuristic grid with electric lines.",
+    glow: ["#00f5ff", "#ff3cac"],
+    background:
+      "repeating-linear-gradient(0deg, rgba(0,245,255,0.08) 0 1px, rgba(0,0,0,0) 1px 40px)," +
+      "repeating-linear-gradient(90deg, rgba(0,245,255,0.08) 0 1px, rgba(0,0,0,0) 1px 40px)," +
+      "linear-gradient(160deg, #0a0f1e, #070b16 70%, #04060e)",
+    inside: "#070b16",
+  },
+  {
+    key: "minimal", name: "Minimal",
+    description: "Plain, quiet surface with almost no effects.",
+    glow: ["#c8c8c8", "#8a8a8a"],
+    background: "linear-gradient(160deg, #2a2a2e, #232327 70%, #1c1c1f)",
+    inside: "#232327",
+  },
+  {
+    key: "classic_blue", name: "Classic Blue",
+    description: "Simple blue background with a white border.",
+    glow: ["#4aa3ff", "#2f6bff"],
+    background: "linear-gradient(160deg, #16335e, #112a4e 70%, #0b1c36)",
+    inside: "#112a4e",
+  },
+  // ---- Plain solid-colour backgrounds (no uploaded image; CSS-only). ----
+  {
+    key: "plain_red", name: "Crimson Red",
+    description: "A bold solid red backdrop, minimal and clean.",
+    glow: ["#ff4d4d", "#ff8a8a"],
+    background: "linear-gradient(160deg, #7a1414, #5c0f0f 70%, #3d0a0a)",
+    inside: "#4a0f0f",
+  },
+  {
+    key: "plain_blue", name: "Royal Blue",
+    description: "A bold solid blue backdrop, minimal and clean.",
+    glow: ["#3b82f6", "#60a5fa"],
+    background: "linear-gradient(160deg, #0f2a66, #0b2050 70%, #071536)",
+    inside: "#0b2050",
+  },
+  {
+    key: "plain_green", name: "Emerald Green",
+    description: "A bold solid green backdrop, minimal and clean.",
+    glow: ["#22c55e", "#4ade80"],
+    background: "linear-gradient(160deg, #0f5c33, #0b4526 70%, #072e19)",
+    inside: "#0b4526",
+  },
+  {
+    key: "plain_purple", name: "Royal Purple",
+    description: "A bold solid purple backdrop, minimal and clean.",
+    glow: ["#a855f7", "#c084fc"],
+    background: "linear-gradient(160deg, #4c1d7a, #3a155c 70%, #260d3d)",
+    inside: "#3a155c",
+  },
+  {
+    key: "plain_black", name: "Jet Black",
+    description: "Pure black backdrop for maximum contrast.",
+    glow: ["#ffffff", "#9ca3af"],
+    background: "linear-gradient(160deg, #141414, #0c0c0c 70%, #050505)",
+    inside: "#0c0c0c",
+  },
+  {
+    key: "plain_white", name: "Pure White",
+    description: "Bright white backdrop with sharp dark accents.",
+    glow: ["#e5e7eb", "#9ca3af"],
+    background: "linear-gradient(160deg, #e9ecef, #d8dce1 70%, #c3c9d1)",
+    inside: "#d8dce1",
+  },
+];
+const ARENA_THEME_MAP: { [key: string]: ArenaThemeDef } = Object.fromEntries(ARENA_THEMES.map((t) => [t.key, t]));
+const DEFAULT_ARENA_THEME = "galaxy";
+// Convert a #rrggbb hex to an rgba() string (used to derive themed outer glow).
+const hexToRgba = (hex: string, alpha: number): string => {
+  const h = hex.replace("#", "");
+  const r = parseInt(h.substring(0, 2), 16);
+  const g = parseInt(h.substring(2, 4), 16);
+  const b = parseInt(h.substring(4, 6), 16);
+  return `rgba(${r}, ${g}, ${b}, ${alpha})`;
+};
+// Builds the page background behind + around the arena so the selected theme
+// extends OUTSIDE the shape (matching the board look in the reference art), with
+// a soft themed glow pooling toward the arena. Visual only.
+const buildArenaOuterBackground = (theme: ArenaThemeDef): string =>
+  `radial-gradient(55% 60% at 42% 50%, ${hexToRgba(theme.glow[0], 0.18)} 0%, rgba(0,0,0,0) 60%),` +
+  `radial-gradient(85% 90% at 42% 50%, ${hexToRgba(theme.glow[1], 0.12)} 0%, rgba(0,0,0,0) 72%)`;
 
 let nextBubbleId = 1;
 let nextProjectileId = Date.now(); // Start with timestamp to ensure uniqueness across renders
@@ -236,6 +692,307 @@ type PowerAssignment = {
   duration: number; // in seconds
 };
 
+// ============================================================================
+// ARENA PICKUPS (spec section 4) — collectible objects that modify ONE bubble
+// (the bubble that touches them). Default OFF; when OFF nothing spawns/renders.
+// Effects are adapted to this autonomous-physics game: they apply per-bubble.
+// ============================================================================
+type ArenaPickupKind =
+  | "health_kit" | "mega_health" | "shield" | "speed_boost" | "damage_boost"
+  | "regeneration" | "magnet" | "impact_boost" | "second_chance" | "ghost_mode"
+  | "poison" | "bomb" | "slow" | "weakness" | "reverse_controls" | "shrink"
+  | "locked" | "bleed" | "stun" | "curse";
+
+// Timed per-bubble status produced by a pickup (or later by zones/events).
+type ArenaStatusType =
+  | "speed_boost" | "damage_boost" | "regeneration" | "magnet" | "ghost"
+  | "poison" | "slow" | "weakness" | "reverse" | "shrink" | "locked"
+  | "bleed" | "stun";
+
+type ArenaPickup = {
+  id: number;
+  x: number;
+  y: number;
+  kind: ArenaPickupKind;
+  createdAt: number;
+  expiresAt: number;
+  vy?: number; // falling speed for event rain (health_rain/item_chaos); undefined = static
+};
+
+type ArenaStatus = {
+  id: number;
+  type: ArenaStatusType;
+  startedAt: number;
+  expiresAt: number;
+  lastTick?: number;   // for HP-over-time effects
+  origR?: number;      // for shrink: original radius to restore
+  origTgt?: number;    // for shrink: original target radius to restore
+};
+
+const ARENA_PICKUP_RADIUS = 18;
+type ArenaPickupMeta = { name: string; icon: string; good: boolean; color: string };
+const ARENA_PICKUP_INFO: Record<ArenaPickupKind, ArenaPickupMeta> = {
+  // GOOD (green/cyan)
+  health_kit:       { name: "Health Kit",       icon: "❤️", good: true,  color: "#22c55e" },
+  mega_health:      { name: "Mega Health",      icon: "💖", good: true,  color: "#10b981" },
+  shield:           { name: "Shield",           icon: "🛡️", good: true,  color: "#38bdf8" },
+  speed_boost:      { name: "Speed Boost",      icon: "⚡", good: true,  color: "#22d3ee" },
+  damage_boost:     { name: "Damage Boost",     icon: "🔥", good: true,  color: "#f59e0b" },
+  regeneration:     { name: "Regeneration",     icon: "💚", good: true,  color: "#34d399" },
+  magnet:           { name: "Magnet",           icon: "🧲", good: true,  color: "#60a5fa" },
+  impact_boost:     { name: "Impact Boost",     icon: "💥", good: true,  color: "#f472b6" },
+  second_chance:    { name: "Second Chance",    icon: "👼", good: true,  color: "#a7f3d0" },
+  ghost_mode:       { name: "Ghost Mode",       icon: "👻", good: true,  color: "#c4b5fd" },
+  // BAD (red/magenta)
+  poison:           { name: "Poison",           icon: "☠️", good: false, color: "#a855f7" },
+  bomb:             { name: "Bomb",             icon: "💣", good: false, color: "#ef4444" },
+  slow:             { name: "Slow",             icon: "🐌", good: false, color: "#f59e0b" },
+  weakness:         { name: "Weakness",         icon: "🔻", good: false, color: "#fb7185" },
+  reverse_controls: { name: "Reverse Controls", icon: "↔️", good: false, color: "#e879f9" },
+  shrink:           { name: "Shrink",           icon: "↘️", good: false, color: "#f0abfc" },
+  locked:           { name: "Locked",           icon: "🔒", good: false, color: "#94a3b8" },
+  bleed:            { name: "Bleed",            icon: "🩸", good: false, color: "#dc2626" },
+  stun:             { name: "Stun",             icon: "💫", good: false, color: "#fca5a5" },
+  curse:            { name: "Curse",            icon: "🌀", good: false, color: "#d946ef" },
+};
+const ARENA_PICKUP_KINDS = Object.keys(ARENA_PICKUP_INFO) as ArenaPickupKind[];
+const GOOD_PICKUP_KINDS = ARENA_PICKUP_KINDS.filter((k) => ARENA_PICKUP_INFO[k].good);
+const BAD_PICKUP_KINDS = ARENA_PICKUP_KINDS.filter((k) => !ARENA_PICKUP_INFO[k].good);
+// Curse resolves to exactly one of these on collection.
+const CURSE_OUTCOMES: ArenaPickupKind[] = ["poison", "slow", "weakness", "reverse_controls", "shrink", "stun"];
+
+// ============================================================================
+// BLOCKADES (spec section 5) — physical objects with independent collision
+// geometry. Default OFF. Two primitives only: axis-aligned rect and circle
+// (a rotating bar is a rect resolved in its own rotated frame).
+// ============================================================================
+type ArenaBlockadeKind =
+  | "stone" | "breakable" | "spike_block" | "bouncy_pad" | "moving_block"
+  | "rotating_bar" | "conveyor" | "laser_wall" | "rotating_blade" | "energy_wall"
+  | "invisible_wall" | "asteroid" | "moving_asteroid" | "vanishing_block"
+  | "pusher" | "teleport_gate";
+
+type ArenaBlockade = {
+  id: number;
+  kind: ArenaBlockadeKind;
+  shape: "rect" | "circle";
+  x: number; y: number;          // center
+  w: number; h: number;          // rect half-extents are w/2, h/2
+  r: number;                     // circle radius
+  solid: boolean;                // blocks movement (false = field/hazard only)
+  createdAt: number;
+  expiresAt?: number;            // vanishing block / energy wall
+  hp?: number;                   // breakable
+  angle?: number;                // rotating bar / blade current rotation (rad)
+  spin?: number;                 // rad per ms
+  ax?: number; ay?: number;      // path endpoint A (moving kinds)
+  bx?: number; by?: number;      // path endpoint B
+  t?: number;                    // 0..1 position along path
+  dir?: number;                  // +1 / -1 path direction
+  pathSpeed?: number;            // t per ms
+  fx?: number; fy?: number;      // conveyor / pusher force direction (unit)
+  active?: boolean;              // laser wall pulsing state
+  linkId?: number;               // teleport gate partner id
+  fading?: boolean;              // vanishing block visual state
+};
+
+type ArenaBlockadeMeta = { name: string; icon: string; color: string; desc: string };
+const ARENA_BLOCKADE_INFO: Record<ArenaBlockadeKind, ArenaBlockadeMeta> = {
+  stone:          { name: "Stone Block",     icon: "🧱", color: "#94a3b8", desc: "Static solid, bounces bubbles" },
+  breakable:      { name: "Breakable Block", icon: "📦", color: "#a8a29e", desc: "Solid with 3 HP, then shatters" },
+  spike_block:    { name: "Spike",           icon: "🔺", color: "#ef4444", desc: "Contact damage on cooldown" },
+  bouncy_pad:     { name: "Bouncy Pad",      icon: "🟢", color: "#22c55e", desc: "Launches bubbles outward" },
+  moving_block:   { name: "Moving Block",    icon: "↔️", color: "#64748b", desc: "Solid block on a patrol path" },
+  rotating_bar:   { name: "Rotating Bar",    icon: "🌀", color: "#60a5fa", desc: "Spinning solid bar" },
+  conveyor:       { name: "Conveyor",        icon: "➡️", color: "#38bdf8", desc: "Pushes bubbles along a direction" },
+  laser_wall:     { name: "Laser Wall",      icon: "⚡", color: "#f97316", desc: "Pulsing damage beam" },
+  rotating_blade: { name: "Rotating Blade",  icon: "☸️", color: "#fb7185", desc: "Spinning hazard, damage + knockback" },
+  energy_wall:    { name: "Energy Wall",     icon: "🟦", color: "#818cf8", desc: "Temporary solid wall" },
+  invisible_wall: { name: "Invisible Wall",  icon: "👁️", color: "#cbd5e1", desc: "Solid but barely visible" },
+  asteroid:       { name: "Asteroid",        icon: "🪨", color: "#a1a1aa", desc: "Static round obstacle" },
+  moving_asteroid:{ name: "Moving Asteroid", icon: "☄️", color: "#d6d3d1", desc: "Drifting round obstacle" },
+  vanishing_block:{ name: "Vanishing Block", icon: "⬛", color: "#71717a", desc: "Solid, then fades away" },
+  pusher:         { name: "Pusher",          icon: "💨", color: "#22d3ee", desc: "Continuous directional force field" },
+  teleport_gate:  { name: "Teleport Gate",   icon: "🌌", color: "#c084fc", desc: "Linked gates, enter A exit B" },
+};
+const ARENA_BLOCKADE_KINDS = Object.keys(ARENA_BLOCKADE_INFO) as ArenaBlockadeKind[];
+const BLOCKADE_SPIKE_DAMAGE = 15;
+const BLOCKADE_BLADE_DAMAGE = 10;
+const BLOCKADE_LASER_DAMAGE = 8;
+const BLOCKADE_CONTACT_COOLDOWN_MS = 500;
+// Plain static/moving wall blockades render as a brick cluster instead of a
+// colored box. Hazard kinds (spikes, blades, lasers, etc.) keep their icon.
+const BLOCKADE_WALL_KINDS: ArenaBlockadeKind[] = [
+  "stone", "breakable", "invisible_wall", "moving_block", "energy_wall", "vanishing_block",
+];
+// Sand-colored bricks for the softer/temporary wall kinds; red bricks otherwise.
+const BLOCKADE_SAND_KINDS: ArenaBlockadeKind[] = ["breakable", "vanishing_block"];
+
+// ============================================================================
+// ZONES (spec section 6) — circular areas that apply effects while a bubble is
+// inside. They never block movement. Default OFF.
+// ============================================================================
+type ArenaZoneKind =
+  | "ice" | "fire" | "poison_zone" | "heal" | "speed_zone"
+  | "gravity" | "wind" | "slow_zone" | "invisibility";
+
+type ArenaZone = {
+  id: number;
+  kind: ArenaZoneKind;
+  x: number; y: number;
+  r: number;
+  createdAt: number;
+  expiresAt: number;
+  fx?: number; fy?: number;   // wind direction (unit)
+};
+
+type ArenaZoneMeta = { name: string; icon: string; color: string; desc: string };
+const ARENA_ZONE_INFO: Record<ArenaZoneKind, ArenaZoneMeta> = {
+  ice:          { name: "Ice Zone",          icon: "🧊", color: "#7dd3fc", desc: "Slippery, bubbles slide" },
+  fire:         { name: "Fire Zone",         icon: "🔥", color: "#f97316", desc: "-5 HP/sec inside" },
+  poison_zone:  { name: "Poison Zone",       icon: "☠️", color: "#a855f7", desc: "-2 HP/sec and slower" },
+  heal:         { name: "Heal Zone",         icon: "💚", color: "#22c55e", desc: "+3 HP/sec inside" },
+  speed_zone:   { name: "Speed Zone",        icon: "⚡", color: "#22d3ee", desc: "Speed x1.5 inside" },
+  gravity:      { name: "Gravity Zone",      icon: "🌑", color: "#8b5cf6", desc: "Pulls bubbles to its center" },
+  wind:         { name: "Wind Zone",         icon: "🌬️", color: "#93c5fd", desc: "Continuous directional push" },
+  slow_zone:    { name: "Slow Zone",         icon: "🐌", color: "#facc15", desc: "Speed x0.5 inside" },
+  invisibility: { name: "Invisibility Zone", icon: "👁️", color: "#64748b", desc: "Bubbles fade, collision stays" },
+};
+const ARENA_ZONE_KINDS = Object.keys(ARENA_ZONE_INFO) as ArenaZoneKind[];
+
+// ============================================================================
+// EVENTS (spec section 7) — temporary global match changes. Default OFF.
+// Each runs warning -> active -> end -> cleanup. Only one at a time.
+// ============================================================================
+type ArenaEventKind =
+  | "health_rain" | "item_chaos" | "double_damage" | "low_gravity"
+  | "shrinking_arena" | "reverse_arena" | "meteor_shower" | "random_modifier";
+
+type ArenaEventState = {
+  kind: ArenaEventKind;
+  phase: "warning" | "active";
+  startedAt: number;
+  endsAt: number;
+  label: string;          // shown in the banner (resolved modifier for Random)
+  modifier?: string;      // chosen sub-modifier for random_modifier
+};
+
+type ArenaMeteor = { id: number; x: number; y: number; vx: number; vy: number; r: number };
+// Decorative falling swords for the Double Damage event (no collision, visual only).
+type ArenaSword = { id: number; x: number; y: number; vy: number; rot: number };
+
+type ArenaEventMeta = { name: string; icon: string; color: string; durationMs: number; desc: string };
+const ARENA_EVENT_INFO: Record<ArenaEventKind, ArenaEventMeta> = {
+  health_rain:     { name: "Health Rain",     icon: "💗", color: "#22c55e", durationMs: 5000,  desc: "Health kits rain into the arena" },
+  item_chaos:      { name: "Item Chaos",      icon: "🎲", color: "#f59e0b", durationMs: 5000,  desc: "Random good and bad pickups flood in" },
+  double_damage:   { name: "Double Damage",   icon: "⚔️", color: "#ef4444", durationMs: 8000,  desc: "All collision damage x2" },
+  low_gravity:     { name: "Low Gravity",     icon: "🎈", color: "#38bdf8", durationMs: 8000,  desc: "Movement becomes floaty" },
+  shrinking_arena: { name: "Shrinking Arena", icon: "🔻", color: "#fb7185", durationMs: 10000, desc: "Playable boundary contracts" },
+  reverse_arena:   { name: "Reverse Arena",   icon: "🔄", color: "#e879f9", durationMs: 8000,  desc: "Every bubble reverses direction" },
+  meteor_shower:   { name: "Meteor Shower",   icon: "☄️", color: "#f97316", durationMs: 6000,  desc: "Falling meteors damage on contact" },
+  random_modifier: { name: "Random Modifier", icon: "❓", color: "#facc15", durationMs: 8000,  desc: "One random modifier is chosen" },
+};
+const ARENA_EVENT_KINDS = Object.keys(ARENA_EVENT_INFO) as ArenaEventKind[];
+const EVENT_WARNING_MS = 1500;
+const RANDOM_MODIFIER_CHOICES = ["double_damage", "low_gravity", "speed_boost", "slow", "reverse_controls", "pickup_frenzy"] as const;
+
+// Shared control-bar widgets for the four modifier systems (spec section 11).
+function SegRow<T extends string | number>({ label, value, options, onPick, accent }: {
+  label: string;
+  value: T;
+  options: readonly (readonly [T, string])[];
+  onPick: (v: T) => void;
+  accent: string;
+}) {
+  return (
+    <div>
+      <div style={{ color: "#ccc", fontSize: 11, marginBottom: 4 }}>{label}</div>
+      <div style={{ display: "flex", gap: 6 }}>
+        {options.map(([val, text]) => (
+          <button key={String(val)} onClick={() => onPick(val)}
+            style={{
+              flex: 1, padding: "6px 2px", fontSize: 10,
+              borderRadius: 6, cursor: "pointer", border: "1px solid rgba(255,255,255,0.15)",
+              background: value === val ? accent : "rgba(255,255,255,0.06)",
+              color: value === val ? "#06210f" : "#ccc", fontWeight: 700,
+            }}>{text}</button>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+// Uniform icon-only toggle grid — no names/descriptions, hover title for identification.
+function ItemChips<K extends string>({ label, kinds, info, selected, onToggle, onAll, onNone }: {
+  label: string;
+  kinds: readonly K[];
+  info: Record<K, { name: string; icon: string; color: string }>;
+  selected: Set<K>;
+  onToggle: (k: K) => void;
+  onAll: () => void;
+  onNone: () => void;
+}) {
+  return (
+    <div>
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 4 }}>
+        <span style={{ color: "#ccc", fontSize: 11 }}>{label}</span>
+        <span style={{ display: "flex", gap: 6 }}>
+          <button onClick={onAll} style={{ fontSize: 9, padding: "2px 6px", borderRadius: 4, cursor: "pointer", border: "1px solid rgba(255,255,255,0.15)", background: "rgba(255,255,255,0.06)", color: "#ccc" }}>All</button>
+          <button onClick={onNone} style={{ fontSize: 9, padding: "2px 6px", borderRadius: 4, cursor: "pointer", border: "1px solid rgba(255,255,255,0.15)", background: "rgba(255,255,255,0.06)", color: "#ccc" }}>None</button>
+        </span>
+      </div>
+      <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(34px, 1fr))", gap: 5 }}>
+        {kinds.map((k) => {
+          const meta = info[k];
+          const on = selected.has(k);
+          return (
+            <button key={k} title={meta.name} onClick={() => onToggle(k)}
+              style={{
+                display: "flex", alignItems: "center", justifyContent: "center",
+                width: 34, height: 30, fontSize: 15, borderRadius: 6, cursor: "pointer",
+                border: `1px solid ${on ? meta.color : "rgba(255,255,255,0.12)"}`,
+                background: on ? `${meta.color}22` : "rgba(255,255,255,0.04)",
+                opacity: on ? 1 : 0.55,
+              }}>
+              {meta.icon}
+            </button>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
+const MODE_OPTIONS = [["auto", "Random / Auto"], ["custom", "Custom"]] as const;
+const FREQ_OPTIONS = [["low", "Low"], ["medium", "Medium"], ["high", "High"]] as const;
+const DURATION_OPTIONS = [[0, "Auto"], [3, "3s"], [5, "5s"], [8, "8s"], [12, "12s"]] as const;
+
+// Short badge derived from a power name (no per-power icon data exists) — keeps
+// the grid uniform/aligned instead of variable-width full-name buttons.
+const powerBadge = (name: string): string => name.split(/\s+/).map((w) => w[0]).join("").slice(0, 2).toUpperCase();
+
+// Uniform icon-badge toggle grid for power catalogues — replaces variable-width
+// full-name buttons that caused misaligned rows.
+function PowerChips({ powerKey, active, onToggle, accent }: {
+  powerKey: keyof typeof SUPER_BUBBLE_TYPES; active: boolean; onToggle: () => void; accent: string;
+}) {
+  const power = SUPER_BUBBLE_TYPES[powerKey];
+  return (
+    <button key={powerKey} title={`${power.name} \u00b7 ${power.damage} dmg`} onClick={onToggle}
+      style={{
+        display: "flex", alignItems: "center", justifyContent: "center",
+        width: 34, height: 30, fontSize: 11, fontWeight: 700, borderRadius: 6, cursor: "pointer",
+        border: `1px solid ${active ? accent : "rgba(255,255,255,0.12)"}`,
+        background: active ? `${accent}33` : "rgba(255,255,255,0.04)",
+        color: active ? "#fff" : "#888", opacity: active ? 1 : 0.55,
+      }}>
+      {powerBadge(power.name)}
+    </button>
+  );
+}
+
+
+
 /* ---------- Helpers ---------- */
 
 const clamp = (v: number, a: number, b: number) => Math.max(a, Math.min(b, v));
@@ -251,10 +1008,10 @@ const dist = (x1: number, y1: number, x2: number, y2: number) => {
 };
 
 const getRadiusForCount = (count: number) => {
-  if (count <= 5) return 40;
-  if (count <= 10) return 30;
-  if (count <= 50) return 27;
-  if (count <= 100) return 20;
+  if (count <= 5) return 19;
+  if (count <= 10) return 17;
+  if (count <= 50) return 15;
+  if (count <= 100) return 14;
   if (count <= 500) return 12;
   if (count <= 1000) return 11;
   if (count <= 2000) return 10;
@@ -272,6 +1029,14 @@ const getRadiusForCount = (count: number) => {
 const IMAGE_SHOW_RADIUS = 9;
 const REVEAL_THRESHOLD = 7000;
 const IMAGE_DECODE_CONCURRENCY = 2;
+const AVATAR_SPRITE_SRC = "/css/images/bubblebash-avatars.png";
+const ARENA_GLOW_PALETTES = [
+  ["#ff3156", "#ff8a3d"],
+  ["#00d9ff", "#4263ff"],
+  ["#a855f7", "#ff3cac"],
+  ["#00f5a0", "#00d9ff"],
+  ["#ffd166", "#ff6b35"],
+];
 
 const BUCKET_SIZES = [8, 11, 13, 15, 20, 27, 30, 40, 64];
 const REVEAL_BATCH_PER_TICK = 120;
@@ -330,17 +1095,45 @@ const SB_COLLISION_COOLDOWN_MS = 120; // each normal only takes damage from supe
 
 const ArenaPage: React.FC = () => {
   const speed = 3;
+  const [searchParams] = useSearchParams();
+  const matchQuery = searchParams.toString();
+  const requestedMode = searchParams.get("mode");
+  const customRosterRequested = searchParams.get("roster") === "custom";
+  const requestedArenaType = requestedMode === "boss" ? ARENA_TYPES.BOSS : requestedMode === "duel" || requestedMode === "many" ? ARENA_TYPES.BRAWL : requestedMode === "normal" ? ARENA_TYPES.NORMAL : null;
+  const requestedShape = searchParams.get("shape") as ArenaShape | null;
+  const initialArenaShape = requestedShape && Object.values(ARENA_SHAPES).includes(requestedShape) ? requestedShape : ARENA_SHAPES.RECTANGLE;
+  const requestedTheme = searchParams.get("theme");
+  const initialArenaTheme = requestedTheme && ARENA_THEME_MAP[requestedTheme] ? requestedTheme : DEFAULT_ARENA_THEME;
 
   const arenaRef = useRef<HTMLDivElement | null>(null);
+  const [arenaFrame, setArenaFrame] = useState<React.CSSProperties>({ top: 0, left: 0, width: 0, height: 0 });
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
   const leaderboardRef = useRef<HTMLDivElement | null>(null);
   const imageListRef = useRef<string[]>([]);
   const bossImgRef = useRef<string>("");
 
-  const [arenaType, setArenaType] = useState<string | null>(null);
-  const [arenaTypeSelected, setArenaTypeSelected] = useState(false);
-  const [arenaShape, setArenaShape] = useState<ArenaShape>(ARENA_SHAPES.RECTANGLE);
-  const [arenaReady, setArenaReady] = useState(false); // tracks when arena setup is complete
+  const [arenaType, setArenaType] = useState<string | null>(requestedArenaType);
+  const [arenaTypeSelected, setArenaTypeSelected] = useState(Boolean(requestedArenaType));
+  const [arenaShape, setArenaShape] = useState<ArenaShape>(initialArenaShape);
+  const [arenaTheme, setArenaTheme] = useState<string>(initialArenaTheme);
+  const [arenaReady, setArenaReady] = useState(Boolean(requestedShape)); // tracks when arena setup is complete
+
+  useLayoutEffect(() => {
+    const arena = arenaRef.current;
+    if (!arena) return;
+    const updateArenaFrame = () => {
+      const rect = arena.getBoundingClientRect();
+      setArenaFrame({ top: rect.top, left: rect.left, width: rect.width, height: rect.height });
+    };
+    updateArenaFrame();
+    const observer = new ResizeObserver(updateArenaFrame);
+    observer.observe(arena);
+    window.addEventListener("resize", updateArenaFrame);
+    return () => {
+      observer.disconnect();
+      window.removeEventListener("resize", updateArenaFrame);
+    };
+  }, [arenaShape, arenaReady]);
   const [isRunning, setIsRunning] = useState(false);
   const gameStartTimeRef = useRef<number>(0); // Track when game started
 
@@ -352,6 +1145,16 @@ const ArenaPage: React.FC = () => {
   const [winner, setWinner] = useState<BubbleData | null>(null);
   const [winnersList, setWinnersList] = useState<BubbleData[] | null>(null);
   const [winnersImages, setWinnersImages] = useState<string[] | null>(null);
+  const [eliminatedSide, setEliminatedSide] = useState<"boss" | "heroes" | null>(null);
+  const gameEndedRef = useRef(false);
+
+  useEffect(() => {
+    if (!winner && !winnersList && !winnersImages) return;
+    gameEndedRef.current = true;
+    countRef.current = 0;
+    projectilesRef.current = [];
+    setProjectiles([]);
+  }, [winner, winnersList, winnersImages]);
 
   const [spikeEnabled, setSpikeEnabled] = useState(false);
   const [spikeCount, setSpikeCount] = useState(1);
@@ -385,10 +1188,17 @@ const ArenaPage: React.FC = () => {
   const bossPowerAnimationShownRef = useRef(false); // Track if boss power animation was already shown
 
   const [speedMultiplier, setSpeedMultiplier] = useState(1.5);
-  const [controlsOpen, setControlsOpen] = useState(false);
+  const [controlsOpen, setControlsOpen] = useState(true);
   const [pageBackgroundColor, setPageBackgroundColor] = useState('#111111');
   const [canvasBackgroundColor, setCanvasBackgroundColor] = useState('#1a1a1a');
   const [arenaInsideColor, setArenaInsideColor] = useState('#0d0d0d');
+  // Neon edge palette follows the selected theme (visual only, no gameplay effect).
+  const activeArenaTheme = ARENA_THEME_MAP[arenaTheme] || ARENA_THEME_MAP[DEFAULT_ARENA_THEME];
+  const arenaGlowPalette = activeArenaTheme.glow;
+  // Themed background for the whole page so the theme extends outside the arena too.
+  const arenaOuterBackground = buildArenaOuterBackground(activeArenaTheme);
+  // Uploaded theme background image (matches the selection-flow preview for continuity).
+  const activeThemeBgImage = ARENA_THEME_IMAGES[activeArenaTheme.key];
 
   const [superpowerEnabled, setSuperpowerEnabled] = useState(false);
   const [superpowerAutoEnableTime, setSuperpowerAutoEnableTime] = useState(0); // seconds, 0 = start immediately
@@ -412,21 +1222,21 @@ const ArenaPage: React.FC = () => {
     // Original
     shuriken: true,
   });
-  const [firingMode, setFiringMode] = useState<"auto" | "manual">("manual");
+  const [firingMode, setFiringMode] = useState<"auto" | "manual">("auto");
   const autoFireRef = useRef<number | null>(null);
   const [projectileSpeedPerTick, setProjectileSpeedPerTick] = useState<number>(6);
   const [superbubbleProjectileCount, setSuperbubbleProjectileCount] = useState<number>(1); // 1 for single, >1 for multiple
   const [superbubblePowerMode, setSuperbubblePowerMode] = useState<"random" | "same">("random"); // random = different power per projectile, same = same power for all
   
   // Player Bubble Shooting (Boss Arena)
-  const [playerBubblesFiringMode, setPlayerBubblesFiringMode] = useState<"auto" | "manual">("manual");
+  const [playerBubblesFiringMode, setPlayerBubblesFiringMode] = useState<"auto" | "manual">("auto");
   const [playerBubblesAutoFire, setPlayerBubblesAutoFire] = useState<boolean>(false);
   const [playerBubblesProjectileSpeed, setPlayerBubblesProjectileSpeed] = useState<number>(4);
   const [playerBubblesProjectileCount, setPlayerBubblesProjectileCount] = useState<number>(1);
   const [playerBubblesPowerMode, setPlayerBubblesPowerMode] = useState<"random" | "same">("random");
   
   // Brawl Bubble Shooting
-  const [brawlBubblesFiringMode, setBrawlBubblesFiringMode] = useState<"auto" | "manual">("manual");
+  const [brawlBubblesFiringMode, setBrawlBubblesFiringMode] = useState<"auto" | "manual">("auto");
   const [brawlBubblesAutoFire, setBrawlBubblesAutoFire] = useState<boolean>(false);
   const [brawlBubblesProjectileSpeed, setBrawlBubblesProjectileSpeed] = useState<number>(4);
   const [brawlBubblesProjectileCount, setBrawlBubblesProjectileCount] = useState<number>(1);
@@ -480,6 +1290,10 @@ const ArenaPage: React.FC = () => {
   });
   const [powerPickups, setPowerPickups] = useState<PowerPickup[]>([]);
   const playerPowersEnabledRef = useRef(false); // Ref to avoid re-running game loop on toggle
+  const [normalPowersEnabled, setNormalPowersEnabled] = useState(false);
+  const normalPowersEnabledRef = useRef(false);
+  const [selectedNormalPowers, setSelectedNormalPowers] = useState<{ [k in keyof typeof SUPER_BUBBLE_TYPES]?: boolean }>({ shuriken: true });
+  const [normalPowerDamages, setNormalPowerDamages] = useState<{ [k: string]: number }>({ shuriken: 7 });
   const powerPickupsRef = useRef<PowerPickup[]>([]); // Ref for game loop
 
   // When any overlay animation is shown we want to pause game time and resume
@@ -515,15 +1329,179 @@ const ArenaPage: React.FC = () => {
   const bubblePowersRef = useRef<Map<number, BubblePower>>(new Map());
   const lastPickupSpawnRef = useRef<number>(0);
   const preAssignedAppliedRef = useRef<boolean>(false);
+
+  // ===== Arena Pickups (spec section 4) — default OFF =====
+  const [pickupsEnabled, setPickupsEnabled] = useState(false);
+  const pickupsEnabledRef = useRef(false);
+  useEffect(() => { pickupsEnabledRef.current = pickupsEnabled; }, [pickupsEnabled]);
+  const [pickupFrequency, setPickupFrequency] = useState<"low" | "medium" | "high">("medium");
+  const [pickupMax, setPickupMax] = useState<number>(3);
+  const [pickupRatio, setPickupRatio] = useState<"good" | "balanced" | "bad">("balanced");
+  const pickupFrequencyRef = useRef(pickupFrequency);
+  const pickupMaxRef = useRef(pickupMax);
+  const pickupRatioRef = useRef(pickupRatio);
+  useEffect(() => { pickupFrequencyRef.current = pickupFrequency; }, [pickupFrequency]);
+  useEffect(() => { pickupMaxRef.current = pickupMax; }, [pickupMax]);
+  useEffect(() => { pickupRatioRef.current = pickupRatio; }, [pickupRatio]);
+  const [arenaPickups, setArenaPickups] = useState<ArenaPickup[]>([]);
+  const arenaPickupsRef = useRef<ArenaPickup[]>([]);
+  const lastArenaPickupSpawnRef = useRef<number>(0);
+  // Granular control (spec §11): "auto" = random pool as before; "custom" = user picks
+  // exactly which kinds spawn and (optionally) a fixed effect duration in seconds.
+  const [pickupMode, setPickupMode] = useState<"auto" | "custom">("auto");
+  const [pickupSelected, setPickupSelected] = useState<Set<ArenaPickupKind>>(() => new Set(ARENA_PICKUP_KINDS));
+  const [pickupDurationSec, setPickupDurationSec] = useState<number>(0); // 0 = auto (use each effect's default)
+  const pickupModeRef = useRef(pickupMode);
+  const pickupSelectedRef = useRef(pickupSelected);
+  const pickupDurationOverrideRef = useRef(0); // ms; 0 = no override
+  useEffect(() => { pickupModeRef.current = pickupMode; }, [pickupMode]);
+  useEffect(() => { pickupSelectedRef.current = pickupSelected; }, [pickupSelected]);
+  useEffect(() => { pickupDurationOverrideRef.current = pickupDurationSec > 0 ? pickupDurationSec * 1000 : 0; }, [pickupDurationSec]);
+
+  // ===== Blockades (spec section 5) — default OFF =====
+  const [blockadesEnabled, setBlockadesEnabled] = useState(false);
+  const blockadesEnabledRef = useRef(false);
+  useEffect(() => {
+    blockadesEnabledRef.current = blockadesEnabled;
+    if (!blockadesEnabled) {
+      arenaBlockadesRef.current = [];
+      setArenaBlockades([]);
+      blockadeBuiltForRef.current = "";
+      blockadeHitCooldownRef.current.clear();
+      teleportCooldownRef.current.clear();
+    }
+  }, [blockadesEnabled]);
+  const [blockadeDensity, setBlockadeDensity] = useState<"low" | "medium" | "high">("medium");
+  const [blockadeMovement, setBlockadeMovement] = useState<"low" | "medium" | "high">("medium");
+  const [blockadeMode, setBlockadeMode] = useState<"auto" | "custom">("auto");
+  const [blockadeSelected, setBlockadeSelected] = useState<Set<ArenaBlockadeKind>>(() => new Set(ARENA_BLOCKADE_KINDS));
+  const [blockadeDurationSec, setBlockadeDurationSec] = useState<number>(0); // 0 = auto (permanent / per-kind default)
+  const blockadeDensityRef = useRef(blockadeDensity);
+  const blockadeMovementRef = useRef(blockadeMovement);
+  const blockadeModeRef = useRef(blockadeMode);
+  const blockadeSelectedRef = useRef(blockadeSelected);
+  const blockadeDurationOverrideRef = useRef(0);
+  useEffect(() => { blockadeDensityRef.current = blockadeDensity; }, [blockadeDensity]);
+  useEffect(() => { blockadeMovementRef.current = blockadeMovement; }, [blockadeMovement]);
+  useEffect(() => { blockadeModeRef.current = blockadeMode; }, [blockadeMode]);
+  useEffect(() => { blockadeSelectedRef.current = blockadeSelected; }, [blockadeSelected]);
+  useEffect(() => { blockadeDurationOverrideRef.current = blockadeDurationSec > 0 ? blockadeDurationSec * 1000 : 0; }, [blockadeDurationSec]);
+  const [arenaBlockades, setArenaBlockades] = useState<ArenaBlockade[]>([]);
+  const arenaBlockadesRef = useRef<ArenaBlockade[]>([]);
+  const blockadeBuiltForRef = useRef<string>("");   // config signature the current layout was built for
+  const blockadeHitCooldownRef = useRef<Map<string, number>>(new Map()); // `${bubbleId}:${blockadeId}` -> ts
+  const teleportCooldownRef = useRef<Map<number, number>>(new Map());
+
+  // ===== Zones (spec section 6) — default OFF =====
+  const [zonesEnabled, setZonesEnabled] = useState(false);
+  const zonesEnabledRef = useRef(false);
+  useEffect(() => {
+    zonesEnabledRef.current = zonesEnabled;
+    if (!zonesEnabled) {
+      arenaZonesRef.current = [];
+      setArenaZones([]);
+      zoneTickRef.current.clear();
+      fadedBubblesRef.current.clear();
+    }
+  }, [zonesEnabled]);
+  const [zoneFrequency, setZoneFrequency] = useState<"low" | "medium" | "high">("medium");
+  const [zoneMode, setZoneMode] = useState<"auto" | "custom">("auto");
+  const [zoneSelected, setZoneSelected] = useState<Set<ArenaZoneKind>>(() => new Set(ARENA_ZONE_KINDS));
+  const [zoneDurationSec, setZoneDurationSec] = useState<number>(0); // 0 = auto (12s default)
+  const zoneFrequencyRef = useRef(zoneFrequency);
+  const zoneModeRef = useRef(zoneMode);
+  const zoneSelectedRef = useRef(zoneSelected);
+  const zoneDurationOverrideRef = useRef(0);
+  useEffect(() => { zoneFrequencyRef.current = zoneFrequency; }, [zoneFrequency]);
+  useEffect(() => { zoneModeRef.current = zoneMode; }, [zoneMode]);
+  useEffect(() => { zoneSelectedRef.current = zoneSelected; }, [zoneSelected]);
+  useEffect(() => { zoneDurationOverrideRef.current = zoneDurationSec > 0 ? zoneDurationSec * 1000 : 0; }, [zoneDurationSec]);
+  const [arenaZones, setArenaZones] = useState<ArenaZone[]>([]);
+  const arenaZonesRef = useRef<ArenaZone[]>([]);
+  const lastZoneSpawnRef = useRef<number>(0);
+  const zoneTickRef = useRef<Map<number, number>>(new Map()); // bubbleId -> last zone HP tick
+  const fadedBubblesRef = useRef<Set<number>>(new Set());     // inside an invisibility zone
+
+  // ===== Events (spec section 7) — default OFF =====
+  const [eventsEnabled, setEventsEnabled] = useState(false);
+  const eventsEnabledRef = useRef(false);
+  useEffect(() => {
+    eventsEnabledRef.current = eventsEnabled;
+    if (!eventsEnabled) {
+      activeEventRef.current = null;
+      setActiveEvent(null);
+      globalDamageMultRef.current = 1;
+      globalStepMultRef.current = 1;
+      arenaShrinkPadRef.current = 0;
+      setArenaShrinkPad(0);
+      arenaMeteorsRef.current = [];
+      setArenaMeteors([]);
+      arenaSwordsRef.current = [];
+      setArenaSwords([]);
+    }
+  }, [eventsEnabled]);
+  const [eventFrequency, setEventFrequency] = useState<"low" | "medium" | "high">("medium");
+  const [eventMode, setEventMode] = useState<"auto" | "custom">("auto");
+  const [eventSelected, setEventSelected] = useState<Set<ArenaEventKind>>(() => new Set(ARENA_EVENT_KINDS));
+  const [eventDurationSec, setEventDurationSec] = useState<number>(0); // 0 = auto (per-event default)
+  const eventFrequencyRef = useRef(eventFrequency);
+  const eventModeRef = useRef(eventMode);
+  const eventSelectedRef = useRef(eventSelected);
+  const eventDurationOverrideRef = useRef(0);
+  useEffect(() => { eventFrequencyRef.current = eventFrequency; }, [eventFrequency]);
+  useEffect(() => { eventModeRef.current = eventMode; }, [eventMode]);
+  useEffect(() => { eventSelectedRef.current = eventSelected; }, [eventSelected]);
+  useEffect(() => { eventDurationOverrideRef.current = eventDurationSec > 0 ? eventDurationSec * 1000 : 0; }, [eventDurationSec]);
+  const [activeEvent, setActiveEvent] = useState<ArenaEventState | null>(null);
+  const activeEventRef = useRef<ArenaEventState | null>(null);
+  const lastEventAtRef = useRef<number>(0);
+  const eventTickRef = useRef<number>(0);
+  const rainTickRef = useRef<number>(0); // throttles continuous event rain spawns (health_rain/item_chaos/meteor_shower/double_damage)
+  const [arenaMeteors, setArenaMeteors] = useState<ArenaMeteor[]>([]);
+  const arenaMeteorsRef = useRef<ArenaMeteor[]>([]);
+  const [arenaSwords, setArenaSwords] = useState<ArenaSword[]>([]);
+  const arenaSwordsRef = useRef<ArenaSword[]>([]);
+  // Global multipliers driven by events; always restored to neutral on cleanup.
+  const globalDamageMultRef = useRef(1);
+  const globalStepMultRef = useRef(1);
+  const arenaShrinkPadRef = useRef(0); // extra boundary padding (px) for Shrinking Arena
+  const [arenaShrinkPad, setArenaShrinkPad] = useState(0);
+  // Drop every temporary arena object on unmount (spec section 13).
+  useEffect(() => () => {
+    arenaBlockadesRef.current = [];
+    arenaZonesRef.current = [];
+    arenaMeteorsRef.current = [];
+    arenaSwordsRef.current = [];
+    activeEventRef.current = null;
+    blockadeHitCooldownRef.current.clear();
+    teleportCooldownRef.current.clear();
+    zoneTickRef.current.clear();
+    fadedBubblesRef.current.clear();
+    globalDamageMultRef.current = 1;
+    globalStepMultRef.current = 1;
+    arenaShrinkPadRef.current = 0;
+  }, []);
+  // Per-bubble timed statuses (keyed by bubbleId). One-shot flags kept separately.
+  const bubbleStatusesRef = useRef<Map<number, ArenaStatus[]>>(new Map());
+  const arenaShieldRef = useRef<Map<number, number>>(new Map());   // bubbleId -> remaining shield strength
+  const secondChanceRef = useRef<Set<number>>(new Set());          // bubbleIds with a pending revive
+  const impactBoostRef = useRef<Set<number>>(new Set());           // bubbleIds with a pending knockback
+  const lockedUntilRef = useRef<Map<number, number>>(new Map());   // bubbleId -> ts until which it can't collect
+  // Floating "+20", "Poison!" style collection labels (visual only).
+  type PickupFx = { id: number; x: number; y: number; text: string; color: string; createdAt: number };
+  const [pickupFx, setPickupFx] = useState<PickupFx[]>([]);
+  const pickupFxRef = useRef<PickupFx[]>([]);
   
   // Boss arena bubble size multiplier
   const [bossBubbleSizeMultiplier, setBossBubbleSizeMultiplier] = useState<number>(1.0);
+  const [superbubbleImageOptions, setSuperbubbleImageOptions] = useState<string[]>([]);
+  const selectedSuperbubbleImageRef = useRef<string>("");
   const baseBubbleRadiusRef = useRef<number>(0);
   const baseSuperBubbleRadiusRef = useRef<number>(60);
 
   // Brawl Arena State
-  const [brawlMode, setBrawlMode] = useState<"1v1" | "1vMany">("1v1");
-  const [brawlModeSelected, setBrawlModeSelected] = useState(false);
+  const [brawlMode, setBrawlMode] = useState<"1v1" | "1vMany">(requestedMode === "many" ? "1vMany" : "1v1");
+  const [brawlModeSelected, setBrawlModeSelected] = useState(requestedMode === "duel" || requestedMode === "many");
   const [brawlBubbleSizeMultiplier, setBrawlBubbleSizeMultiplier] = useState<number>(1.0);
   const brawl1v1ImagesRef = useRef<string[]>([]); // Images from solo_brawl/
   const brawlSoloImageRef = useRef<string>(""); // Solo bubble image for 1vMany
@@ -550,7 +1528,7 @@ const ArenaPage: React.FC = () => {
     // arrow: true,
     // bullet: true,
     // kunai: true,
-    shuriken: true,
+    shuriken: false,
     // katana: true,
     // energy_blast: true,
     // ice_shard: true,
@@ -565,6 +1543,18 @@ const ArenaPage: React.FC = () => {
   const brawlBubblesProjectileCountRef = useRef<number>(1);
   const brawlBubblesPowerModeRef = useRef<"random" | "same">("random");
   const brawlBubblesProjectileSpeedRef = useRef<number>(4);
+  // Firing-mode refs + manual shoot trigger (read inside the game loop)
+  const playerBubblesFiringModeRef = useRef<"auto" | "manual">("auto");
+  const brawlBubblesFiringModeRef = useRef<"auto" | "manual">("auto");
+  const manualShootRequestRef = useRef<boolean>(false);
+
+  // Special (SELF / ARENA / TARGET) power effects. These are NOT projectiles.
+  //  - shields: bubbleId -> shield that absorbs damage until it expires
+  //  - webbed: bubbleId -> movement slow + a drawn tether from the caster
+  //  - timeStopUntil: while now < value, all bubbles/projectiles freeze (rendering continues)
+  const shieldsRef = useRef<Map<number, { expiresAt: number }>>(new Map());
+  const webbedRef = useRef<Map<number, { until: number; factor: number; fromX: number; fromY: number }>>(new Map());
+  const timeStopUntilRef = useRef<number>(0);
 
   // Blade Damage Refs (sync with state via useEffect)
   const normalBladeDamageRef = useRef<number>(15);
@@ -772,7 +1762,8 @@ const ArenaPage: React.FC = () => {
   // Sync playerPowersEnabled state to ref to avoid restarting game loop when toggled
   useEffect(() => {
     playerPowersEnabledRef.current = playerPowersEnabled;
-  }, [playerPowersEnabled]);
+    normalPowersEnabledRef.current = normalPowersEnabled;
+  }, [playerPowersEnabled, normalPowersEnabled]);
 
   // Sync brawlPowersEnabled state to ref to avoid restarting game loop when toggled
   useEffect(() => {
@@ -791,7 +1782,9 @@ const ArenaPage: React.FC = () => {
   const rTargetRef = useRef<Float32Array | null>(null); // per-bubble target radius
   const healthRef = useRef<Float32Array | null>(null);
   const imgIndexRef = useRef<Int32Array | null>(null);
+  const avatarIndexRef = useRef<Int32Array | null>(null);
   const imgSrcsRef = useRef<string[]>([]);
+  const playerNamesRef = useRef<Map<number, string>>(new Map());
   const textureCache = useRef<Map<string, HTMLImageElement>>(new Map());
   const imageBitmapCache = useRef<Map<string, ImageBitmap>>(new Map());
   const imageDecodeWorkerRef = useRef<Worker | null>(null);
@@ -829,6 +1822,102 @@ const ArenaPage: React.FC = () => {
     }
   };
   
+  // ===== Arena pickup status helpers (spec section 8) =====
+  // A bubble's active timed statuses, pruned of expired entries.
+  const getActiveStatuses = (bubbleId: number, now: number): ArenaStatus[] => {
+    const list = bubbleStatusesRef.current.get(bubbleId);
+    if (!list || list.length === 0) return [];
+    return list.filter((s) => now < s.expiresAt);
+  };
+  const hasStatus = (bubbleId: number, type: ArenaStatusType, now: number): boolean =>
+    getActiveStatuses(bubbleId, now).some((s) => s.type === type);
+  // Movement step multiplier from Speed Boost / Slow / Stun (0 = frozen).
+  const pickupSpeedFactor = (bubbleId: number, now: number): number => {
+    const list = bubbleStatusesRef.current.get(bubbleId);
+    if (!list || list.length === 0) return 1;
+    let m = 1;
+    for (const s of list) {
+      if (now >= s.expiresAt) continue;
+      if (s.type === "stun") return 0;
+      if (s.type === "speed_boost") m *= 1.5;
+      else if (s.type === "slow") m *= 0.5;
+    }
+    return m;
+  };
+  const getDamageDealtMult = (bubbleId: number, now: number): number =>
+    hasStatus(bubbleId, "damage_boost", now) ? 1.5 : 1;
+  const getDamageTakenMult = (bubbleId: number, now: number): number =>
+    hasStatus(bubbleId, "weakness", now) ? 1.5 : 1;
+
+  const nextPickupFxIdRef = useRef(1);
+  // Floating label above a bubble's current position (visual only).
+  const spawnPickupFx = (bubbleId: number, text: string, color: string) => {
+    const idArr = idListRef.current, xArr = xRef.current, yArr = yRef.current;
+    if (!idArr || !xArr || !yArr) return;
+    let idx = -1;
+    for (let i = 0; i < countRef.current; i++) { if (idArr[i] === bubbleId) { idx = i; break; } }
+    if (idx < 0) return;
+    const fx: PickupFx = { id: nextPickupFxIdRef.current++, x: xArr[idx], y: yArr[idx], text, color, createdAt: Date.now() };
+    pickupFxRef.current.push(fx);
+    if (pickupFxRef.current.length > 40) pickupFxRef.current.shift();
+    setPickupFx([...pickupFxRef.current]);
+  };
+
+  // Add or refresh a timed status on a bubble (no infinite stacking — refresh duration).
+  const addStatus = (bubbleId: number, type: ArenaStatusType, durationMs: number, now: number, extra?: Partial<ArenaStatus>) => {
+    let list = bubbleStatusesRef.current.get(bubbleId);
+    if (!list) { list = []; bubbleStatusesRef.current.set(bubbleId, list); }
+    const existing = list.find((s) => s.type === type && now < s.expiresAt);
+    if (existing) {
+      existing.expiresAt = now + durationMs; // refresh duration
+      return;
+    }
+    list.push({ id: nextPickupFxIdRef.current++, type, startedAt: now, expiresAt: now + durationMs, lastTick: now, ...extra });
+  };
+
+  // Apply a pickup's effect to the collecting bubble (index i, id bubbleId).
+  const applyPickupEffect = (kind: ArenaPickupKind, bubbleId: number, i: number, now: number) => {
+    const hArr = healthRef.current, vxArr = vxRef.current, vyArr = vyRef.current;
+    const rArr = rRef.current, rTgt = rTargetRef.current;
+    const heal = (amt: number) => { if (hArr) hArr[i] = hArr[i] + amt; }; // no upper cap: more pickups = more HP, same in every arena mode
+    // In custom mode the user can force a fixed duration (seconds) for all timed effects.
+    const dur = (d: number) => (pickupDurationOverrideRef.current > 0 ? pickupDurationOverrideRef.current : d);
+    switch (kind) {
+      case "health_kit":   heal(20); spawnPickupFx(bubbleId, "+20", "#22c55e"); break;
+      case "mega_health":  heal(40); spawnPickupFx(bubbleId, "+40", "#10b981"); break;
+      case "shield":       arenaShieldRef.current.set(bubbleId, 20); spawnPickupFx(bubbleId, "Shield", "#38bdf8"); break;
+      case "speed_boost":  addStatus(bubbleId, "speed_boost", dur(5000), now); spawnPickupFx(bubbleId, "Speed+", "#22d3ee"); break;
+      case "damage_boost": addStatus(bubbleId, "damage_boost", dur(6000), now); spawnPickupFx(bubbleId, "Dmg+", "#f59e0b"); break;
+      case "regeneration": addStatus(bubbleId, "regeneration", dur(5000), now); spawnPickupFx(bubbleId, "Regen", "#34d399"); break;
+      case "magnet":       addStatus(bubbleId, "magnet", dur(5000), now); spawnPickupFx(bubbleId, "Magnet", "#60a5fa"); break;
+      case "impact_boost": impactBoostRef.current.add(bubbleId); spawnPickupFx(bubbleId, "Impact!", "#f472b6"); break;
+      case "second_chance": secondChanceRef.current.add(bubbleId); spawnPickupFx(bubbleId, "2nd Chance", "#a7f3d0"); break;
+      case "ghost_mode":   addStatus(bubbleId, "ghost", dur(4000), now); spawnPickupFx(bubbleId, "Ghost", "#c4b5fd"); break;
+      case "poison":       addStatus(bubbleId, "poison", dur(5000), now); spawnPickupFx(bubbleId, "Poison", "#a855f7"); break;
+      case "bomb":         if (hArr) hArr[i] = Math.max(0, hArr[i] - 20); spawnPickupFx(bubbleId, "-20", "#ef4444"); break;
+      case "slow":         addStatus(bubbleId, "slow", dur(4000), now); spawnPickupFx(bubbleId, "Slow", "#f59e0b"); break;
+      case "weakness":     addStatus(bubbleId, "weakness", dur(6000), now); spawnPickupFx(bubbleId, "Weak", "#fb7185"); break;
+      case "reverse_controls":
+        // Autonomous game: reverse the bubble's travel direction (one-time flip) + mark status.
+        if (vxArr && vyArr) { vxArr[i] = -vxArr[i]; vyArr[i] = -vyArr[i]; }
+        addStatus(bubbleId, "reverse", dur(4000), now); spawnPickupFx(bubbleId, "Reversed", "#e879f9"); break;
+      case "shrink":
+        if (rArr && rTgt) addStatus(bubbleId, "shrink", dur(6000), now, { origR: rArr[i], origTgt: rTgt[i] });
+        if (rArr) rArr[i] *= 0.7;
+        if (rTgt) rTgt[i] *= 0.7;
+        spawnPickupFx(bubbleId, "Shrink", "#f0abfc"); break;
+      case "locked":       lockedUntilRef.current.set(bubbleId, now + dur(5000)); spawnPickupFx(bubbleId, "Locked", "#94a3b8"); break;
+      case "bleed":        addStatus(bubbleId, "bleed", dur(5000), now); spawnPickupFx(bubbleId, "Bleed", "#dc2626"); break;
+      case "stun":         addStatus(bubbleId, "stun", dur(2000), now); spawnPickupFx(bubbleId, "Stun", "#fca5a5"); break;
+      case "curse": {
+        const outcome = CURSE_OUTCOMES[Math.floor(Math.random() * CURSE_OUTCOMES.length)];
+        spawnPickupFx(bubbleId, `Curse: ${ARENA_PICKUP_INFO[outcome].name}`, "#d946ef");
+        applyPickupEffect(outcome, bubbleId, i, now);
+        break;
+      }
+    }
+  };
+
   // helper for recording collision hits with cooldown checking
   const recordCollisionHit = (
     targetIndex: number,
@@ -842,8 +1931,39 @@ const ArenaPage: React.FC = () => {
     const bubbleId = idListRef.current![targetIndex];
     const lastHit = damageCooldownRef.current[bubbleId] ?? 0;
     if (nowMs - lastHit > COOLDOWN_MS) {
+      // Sand Shield absorbs the hit: register the contact but negate damage.
+      if (applyDamage && shieldsRef.current.size > 0) {
+        const s = shieldsRef.current.get(bubbleId);
+        if (s && nowMs < s.expiresAt) applyDamage = false;
+        else if (s) shieldsRef.current.delete(bubbleId);
+      }
       if (applyDamage && damage !== undefined && healthRef.current) {
-        healthRef.current[targetIndex] = Math.max(0, healthRef.current[targetIndex] - damage);
+        let dmg = damage;
+        // Global event multiplier (Double Damage) — neutral 1 when no event runs.
+        dmg *= globalDamageMultRef.current;
+        // Arena-pickup damage modifiers (spec section 8) — only when pickups are ON.
+        if (pickupsEnabledRef.current) {
+          dmg *= getDamageDealtMult(attackerId, nowMs);   // attacker's Damage Boost
+          dmg *= getDamageTakenMult(bubbleId, nowMs);      // receiver's Weakness
+          // Pickup Shield absorbs the next qualifying damage.
+          const shield = arenaShieldRef.current.get(bubbleId);
+          if (shield && shield > 0) {
+            const absorbed = Math.min(shield, dmg);
+            dmg -= absorbed;
+            const remaining = shield - absorbed;
+            if (remaining > 0) arenaShieldRef.current.set(bubbleId, remaining);
+            else arenaShieldRef.current.delete(bubbleId);
+          }
+        }
+        const newHp = Math.max(0, healthRef.current[targetIndex] - dmg);
+        // Second Chance: instead of dying, revive to 25 HP once.
+        if (newHp <= 0 && pickupsEnabledRef.current && secondChanceRef.current.has(bubbleId)) {
+          secondChanceRef.current.delete(bubbleId);
+          healthRef.current[targetIndex] = 25;
+          spawnPickupFx(bubbleId, "Revived!", "#a7f3d0");
+        } else {
+          healthRef.current[targetIndex] = newHp;
+        }
       }
       damageCooldownRef.current[bubbleId] = nowMs;
       try {
@@ -860,166 +1980,51 @@ const ArenaPage: React.FC = () => {
   };
   
   const currentGameRef = useRef<string | null>(null);
+  const customMatchLoadedRef = useRef(false);
+  const customMatchPayloadRef = useRef("");
 
-  const superBubbleRef = useRef<{ x: number; y: number; vx: number; vy: number; radius: number; health: number; imgSrc: string; id: number } | null>(null);
+  const superBubbleRef = useRef<BubbleData | null>(null);
 
   // Get exact boundary vertices matching the clip-path definition
   const getShapeBoundaryVertices = (dims: { width: number; height: number }): { x: number; y: number }[] => {
     const w = dims.width;
     const h = dims.height;
 
-    switch (arenaShape) {
-      case ARENA_SHAPES.CIRCLE:
-        // Circle boundary - use full radius
-        const points: { x: number; y: number }[] = [];
-        const radius = Math.min(w, h) / 2;
-        const cx = w / 2;
-        const cy = h / 2;
-        for (let i = 0; i < 360; i += 5) {
-          const angle = (i * Math.PI) / 180;
-          points.push({
-            x: cx + radius * Math.cos(angle),
-            y: cy + radius * Math.sin(angle)
-          });
-        }
-        return points;
-
-      case ARENA_SHAPES.HEXAGON:
-        // clip-path: polygon(50% 0%, 100% 25%, 100% 75%, 50% 100%, 0% 75%, 0% 25%)
-        return [
-          { x: w * 0.50, y: h * 0.00 },
-          { x: w * 1.00, y: h * 0.25 },
-          { x: w * 1.00, y: h * 0.75 },
-          { x: w * 0.50, y: h * 1.00 },
-          { x: w * 0.00, y: h * 0.75 },
-          { x: w * 0.00, y: h * 0.25 },
-        ];
-
-      case ARENA_SHAPES.PENTAGON:
-        // clip-path: polygon(50% 0%, 100% 38%, 82% 100%, 18% 100%, 0% 38%)
-        return [
-          { x: w * 0.50, y: h * 0.00 },
-          { x: w * 1.00, y: h * 0.38 },
-          { x: w * 0.82, y: h * 1.00 },
-          { x: w * 0.18, y: h * 1.00 },
-          { x: w * 0.00, y: h * 0.38 },
-        ];
-
-      case ARENA_SHAPES.DIAMOND:
-        // clip-path: polygon(50% 0%, 100% 50%, 50% 100%, 0% 50%)
-        return [
-          { x: w * 0.50, y: h * 0.00 },
-          { x: w * 1.00, y: h * 0.50 },
-          { x: w * 0.50, y: h * 1.00 },
-          { x: w * 0.00, y: h * 0.50 },
-        ];
-
-      case ARENA_SHAPES.HOURGLASS:
-        // clip-path: polygon(0% 0%, 100% 0%, 70% 50%, 100% 100%, 0% 100%, 30% 50%)
-        return [
-          { x: w * 0.00, y: h * 0.00 },
-          { x: w * 1.00, y: h * 0.00 },
-          { x: w * 0.70, y: h * 0.50 },
-          { x: w * 1.00, y: h * 1.00 },
-          { x: w * 0.00, y: h * 1.00 },
-          { x: w * 0.30, y: h * 0.50 },
-        ];
-
-      case ARENA_SHAPES.FUNNEL:
-        // clip-path: polygon(0% 0%, 100% 0%, 80% 100%, 20% 100%)
-        return [
-          { x: w * 0.00, y: h * 0.00 },
-          { x: w * 1.00, y: h * 0.00 },
-          { x: w * 0.80, y: h * 1.00 },
-          { x: w * 0.20, y: h * 1.00 },
-        ];
-
-      case ARENA_SHAPES.CROSS:
-        // clip-path: polygon(40% 0%, 60% 0%, 60% 40%, 100% 40%, 100% 60%, 60% 60%, 60% 100%, 40% 100%, 40% 60%, 0% 60%, 0% 40%, 40% 40%)
-        return [
-          { x: w * 0.40, y: h * 0.00 },
-          { x: w * 0.60, y: h * 0.00 },
-          { x: w * 0.60, y: h * 0.40 },
-          { x: w * 1.00, y: h * 0.40 },
-          { x: w * 1.00, y: h * 0.60 },
-          { x: w * 0.60, y: h * 0.60 },
-          { x: w * 0.60, y: h * 1.00 },
-          { x: w * 0.40, y: h * 1.00 },
-          { x: w * 0.40, y: h * 0.60 },
-          { x: w * 0.00, y: h * 0.60 },
-          { x: w * 0.00, y: h * 0.40 },
-          { x: w * 0.40, y: h * 0.40 },
-        ];
-
-      case ARENA_SHAPES.SPIRAL:
-        // Rounded rectangle approximation (8 vertices for smooth corners)
-        const spiralRadius = Math.min(w, h) * 0.05; // 20px equivalent
-        return [
-          { x: spiralRadius, y: 0 },
-          { x: w - spiralRadius, y: 0 },
-          { x: w, y: spiralRadius },
-          { x: w, y: h - spiralRadius },
-          { x: w - spiralRadius, y: h },
-          { x: spiralRadius, y: h },
-          { x: 0, y: h - spiralRadius },
-          { x: 0, y: spiralRadius },
-        ];
-
-      case ARENA_SHAPES.WAVE:
-        // clip-path: polygon(0% 10%, 10% 0%, 20% 5%, 30% 0%, 40% 5%, 50% 0%, 60% 5%, 70% 0%, 80% 5%, 90% 0%, 100% 10%, 100% 90%, 90% 100%, 80% 95%, 70% 100%, 60% 95%, 50% 100%, 40% 95%, 30% 100%, 20% 95%, 10% 100%, 0% 90%)
-        return [
-          { x: w * 0.00, y: h * 0.10 },
-          { x: w * 0.10, y: h * 0.00 },
-          { x: w * 0.20, y: h * 0.05 },
-          { x: w * 0.30, y: h * 0.00 },
-          { x: w * 0.40, y: h * 0.05 },
-          { x: w * 0.50, y: h * 0.00 },
-          { x: w * 0.60, y: h * 0.05 },
-          { x: w * 0.70, y: h * 0.00 },
-          { x: w * 0.80, y: h * 0.05 },
-          { x: w * 0.90, y: h * 0.00 },
-          { x: w * 1.00, y: h * 0.10 },
-          { x: w * 1.00, y: h * 0.90 },
-          { x: w * 0.90, y: h * 1.00 },
-          { x: w * 0.80, y: h * 0.95 },
-          { x: w * 0.70, y: h * 1.00 },
-          { x: w * 0.60, y: h * 0.95 },
-          { x: w * 0.50, y: h * 1.00 },
-          { x: w * 0.40, y: h * 0.95 },
-          { x: w * 0.30, y: h * 1.00 },
-          { x: w * 0.20, y: h * 0.95 },
-          { x: w * 0.10, y: h * 1.00 },
-          { x: w * 0.00, y: h * 0.90 },
-        ];
-
-      case ARENA_SHAPES.RECTANGLE:
-      default:
-        // Full rectangle boundaries
-        return [
-          { x: 0, y: 0 },
-          { x: w, y: 0 },
-          { x: w, y: h },
-          { x: 0, y: h },
-        ];
+    // Circle keeps its dense analytic boundary for smooth curved collision.
+    if (arenaShape === ARENA_SHAPES.CIRCLE) {
+      const points: { x: number; y: number }[] = [];
+      const radius = Math.min(w, h) / 2;
+      const cx = w / 2;
+      const cy = h / 2;
+      for (let i = 0; i < 360; i += 5) {
+        const angle = (i * Math.PI) / 180;
+        points.push({ x: cx + radius * Math.cos(angle), y: cy + radius * Math.sin(angle) });
+      }
+      return points;
     }
+
+    // All other shapes derive their collision boundary from the shared normalized
+    // polygon map, so the visual clip-path and the physics boundary always match.
+    const poly = SHAPE_POLYGONS[arenaShape] || SHAPE_POLYGONS[ARENA_SHAPES.RECTANGLE];
+    return poly.map(([nx, ny]) => ({ x: nx * w, y: ny * h }));
   };
 
   const getArenaDimensions = () => {
     const arena = arenaRef.current;
     if (arena) {
       const rect = arena.getBoundingClientRect();
-      // Circle arena uses square dimensions for perfect circle
-      if (arenaShape === ARENA_SHAPES.CIRCLE) {
+      // Square-render shapes use a 1:1 box so regular geometry doesn't stretch
+      if (isSquareArenaShape(arenaShape)) {
         const size = Math.min(rect.width, rect.height);
         return { width: size, height: size };
       }
-      // All other shapes use full dimensions - clip-path handles the visual shape
+      // Remaining shapes use full dimensions - clip-path handles the visual shape
       return { width: rect.width, height: rect.height };
     }
     // fallback
     const vh = window.innerHeight * 0.94;
     const vw = window.innerWidth * 0.6;
-    if (arenaShape === ARENA_SHAPES.CIRCLE) {
+    if (isSquareArenaShape(arenaShape)) {
       const size = Math.min(Math.min(vh, vw), 1500);
       return { width: size, height: size };
     }
@@ -1034,13 +2039,24 @@ const ArenaPage: React.FC = () => {
       const cy = dims.height / 2;
       const arenaRadius = Math.min(dims.width, dims.height) / 2;
       const distFromCenter = Math.sqrt((x - cx) * (x - cx) + (y - cy) * (y - cy));
-      return distFromCenter + radius + 10 <= arenaRadius; // 10px safety margin
+      return distFromCenter + radius + 4 <= arenaRadius; // 4px safety margin — hug the visual edge
+    }
+    if (arenaShape === ARENA_SHAPES.RING) {
+      const cx = dims.width / 2;
+      const cy = dims.height / 2;
+      const distanceFromCenter = Math.hypot(x - cx, y - cy);
+      const span = Math.min(dims.width, dims.height);
+      const outerRadius = span * RING_OUTER_FRAC;
+      const innerRadius = span * RING_INNER_FRAC;
+      const safetyMargin = 5;
+      return distanceFromCenter + radius + safetyMargin <= outerRadius
+        && distanceFromCenter - radius - safetyMargin >= innerRadius;
     }
     
     const vertices = getShapeBoundaryVertices(dims);
     if (vertices.length < 3) return false;
     
-    const safetyMargin = 10; // Keep bubbles 10px inside boundaries
+    const safetyMargin = 8; // Small clearance only — cavity should track the visual boundary closely
     
     // Test if point is inside polygon (ray casting algorithm)
     let inside = false;
@@ -1084,7 +2100,7 @@ const ArenaPage: React.FC = () => {
   const constrainToArenaBoundary = (x: number, y: number, radius: number, dims: { width: number; height: number }): { x: number; y: number; vx: number; vy: number } => {
     const cx = dims.width / 2;
     const cy = dims.height / 2;
-    const safetyMargin = 10;
+    const safetyMargin = 8;
 
     let newX = x;
     let newY = y;
@@ -1113,9 +2129,43 @@ const ArenaPage: React.FC = () => {
 
       return { x: newX, y: newY, vx: bounceVx, vy: bounceVy };
     }
+    if (arenaShape === ARENA_SHAPES.RING) {
+      const span = Math.min(dims.width, dims.height);
+      const outerRadius = span * RING_OUTER_FRAC;
+      const innerRadius = span * RING_INNER_FRAC;
+      const dx = x - cx;
+      const dy = y - cy;
+      const distanceFromCenter = Math.hypot(dx, dy) || 0.0001;
+      const safetyMargin = 5;
+      const maxDistance = outerRadius - radius - safetyMargin;
+      const minDistance = innerRadius + radius + safetyMargin;
+      const nx = dx / distanceFromCenter;
+      const ny = dy / distanceFromCenter;
+
+      if (distanceFromCenter > maxDistance) {
+        return { x: cx + nx * maxDistance, y: cy + ny * maxDistance, vx: -nx, vy: -ny };
+      }
+      if (distanceFromCenter < minDistance) {
+        return { x: cx + nx * minDistance, y: cy + ny * minDistance, vx: nx, vy: ny };
+      }
+      return { x, y, vx: 0, vy: 0 };
+    }
 
     // Find nearest boundary point and push inward if too close
     const vertices = getShapeBoundaryVertices(dims);
+
+    // "Inward" must come from the polygon's own winding, not a toward-box-center
+    // heuristic: concave shapes like the crescent have a bounding-box center that
+    // sits inside the carved-out hole, not inside the playable material, which
+    // flipped the push direction near the inner arc and let bubbles leak out.
+    let windingSum = 0;
+    for (let i = 0; i < vertices.length; i++) {
+      const v1 = vertices[i];
+      const v2 = vertices[(i + 1) % vertices.length];
+      windingSum += v1.x * v2.y - v2.x * v1.y;
+    }
+    const flipNormal = windingSum < 0;
+
     let minDist = Infinity;
     let nearestX = x;
     let nearestY = y;
@@ -1142,20 +2192,16 @@ const ArenaPage: React.FC = () => {
         nearestX = v1.x + t * dx;
         nearestY = v1.y + t * dy;
         
-        // Calculate normal (perpendicular to edge, pointing inward)
-        const edgeNormalX = -dy;
-        const edgeNormalY = dx;
+        // Calculate normal (perpendicular to edge, pointing inward per polygon winding)
+        let edgeNormalX = -dy;
+        let edgeNormalY = dx;
+        if (flipNormal) {
+          edgeNormalX = -edgeNormalX;
+          edgeNormalY = -edgeNormalY;
+        }
         const edgeLen = Math.sqrt(edgeNormalX * edgeNormalX + edgeNormalY * edgeNormalY);
         normalX = edgeNormalX / edgeLen;
         normalY = edgeNormalY / edgeLen;
-        
-        // Make sure normal points toward center
-        const toCenterX = cx - nearestX;
-        const toCenterY = cy - nearestY;
-        if (normalX * toCenterX + normalY * toCenterY < 0) {
-          normalX = -normalX;
-          normalY = -normalY;
-        }
       }
     }
 
@@ -1187,7 +2233,7 @@ const ArenaPage: React.FC = () => {
       switch (arenaShape) {
         case ARENA_SHAPES.CIRCLE: {
           const arenaRadius = Math.min(dims.width, dims.height) / 2;
-          const maxSpawnRadius = arenaRadius - radius - 15; // 15px safety margin for spawning
+          const maxSpawnRadius = arenaRadius - radius - 8; // keep the full avatar inside the neon ring
           const angle = Math.random() * Math.PI * 2;
           const r = Math.sqrt(Math.random()) * maxSpawnRadius;
           x = cx + r * Math.cos(angle);
@@ -1252,6 +2298,284 @@ const ArenaPage: React.FC = () => {
     // Fallback to center
     return { x: cx, y: cy };
   };
+
+  // ===== Blockade / zone geometry helpers (spec sections 5, 6, 10) =====
+
+  // Half-extents of a blockade's collision box (rect kinds) in its own frame.
+  const blockadeHalf = (b: ArenaBlockade) => ({ hw: b.w / 2, hh: b.h / 2 });
+
+  // Bounding radius used for spawn-overlap tests.
+  const blockadeBound = (b: ArenaBlockade) =>
+    b.shape === "circle" ? b.r : Math.sqrt(b.w * b.w + b.h * b.h) / 2;
+
+  // True when a bubble at (x,y,r) overlaps the blockade's collision geometry.
+  const overlapsBlockade = (b: ArenaBlockade, x: number, y: number, r: number): boolean => {
+    if (b.shape === "circle") {
+      const dx = x - b.x, dy = y - b.y;
+      const rr = b.r + r;
+      return dx * dx + dy * dy < rr * rr;
+    }
+    // Rect (optionally rotated): test in the blockade's local frame.
+    const a = b.angle || 0;
+    const cos = Math.cos(-a), sin = Math.sin(-a);
+    const dx = x - b.x, dy = y - b.y;
+    const lx = dx * cos - dy * sin;
+    const ly = dx * sin + dy * cos;
+    const { hw, hh } = blockadeHalf(b);
+    const nx = Math.max(-hw, Math.min(hw, lx));
+    const ny = Math.max(-hh, Math.min(hh, ly));
+    const ox = lx - nx, oy = ly - ny;
+    return ox * ox + oy * oy < r * r;
+  };
+
+  // Push a bubble out of a solid blockade and return the surface normal to
+  // bounce along. Returns null when there is no penetration to resolve.
+  const resolveBlockadePush = (
+    b: ArenaBlockade, x: number, y: number, r: number
+  ): { x: number; y: number; nx: number; ny: number } | null => {
+    if (b.shape === "circle") {
+      const dx = x - b.x, dy = y - b.y;
+      const d = Math.sqrt(dx * dx + dy * dy);
+      const need = b.r + r;
+      if (d >= need) return null;
+      const nx = d > 0.001 ? dx / d : 1;
+      const ny = d > 0.001 ? dy / d : 0;
+      return { x: b.x + nx * need, y: b.y + ny * need, nx, ny };
+    }
+    const a = b.angle || 0;
+    const cos = Math.cos(-a), sin = Math.sin(-a);
+    const dx = x - b.x, dy = y - b.y;
+    const lx = dx * cos - dy * sin;
+    const ly = dx * sin + dy * cos;
+    const { hw, hh } = blockadeHalf(b);
+    const cxl = Math.max(-hw, Math.min(hw, lx));
+    const cyl = Math.max(-hh, Math.min(hh, ly));
+    let ox = lx - cxl, oy = ly - cyl;
+    let d = Math.sqrt(ox * ox + oy * oy);
+    if (d >= r) return null;
+    if (d < 0.001) {
+      // Center is inside the box: eject along the shallowest axis.
+      const px = hw - Math.abs(lx);
+      const py = hh - Math.abs(ly);
+      if (px < py) { ox = lx >= 0 ? 1 : -1; oy = 0; }
+      else { ox = 0; oy = ly >= 0 ? 1 : -1; }
+      d = 1;
+    }
+    const lnx = ox / d, lny = oy / d;
+    const tlx = cxl + lnx * r;
+    const tly = cyl + lny * r;
+    // Back to world space.
+    const wcos = Math.cos(a), wsin = Math.sin(a);
+    return {
+      x: b.x + (tlx * wcos - tly * wsin),
+      y: b.y + (tlx * wsin + tly * wcos),
+      nx: lnx * wcos - lny * wsin,
+      ny: lnx * wsin + lny * wcos,
+    };
+  };
+
+  // Build a fresh blockade layout for the current arena + settings.
+  const buildBlockadeLayout = (now: number): ArenaBlockade[] => {
+    const dims = getArenaDimensions();
+    const density = blockadeDensityRef.current;
+    const total = density === "low" ? 4 : density === "high" ? 12 : 8;
+    const mv = blockadeMovementRef.current;
+    const mvScale = mv === "low" ? 0.5 : mv === "high" ? 1.8 : 1;
+    const pool = blockadeModeRef.current === "custom"
+      ? ARENA_BLOCKADE_KINDS.filter((k) => blockadeSelectedRef.current.has(k))
+      : ARENA_BLOCKADE_KINDS;
+    if (pool.length === 0) return [];
+    const override = blockadeDurationOverrideRef.current;
+    const out: ArenaBlockade[] = [];
+    const span = Math.min(dims.width, dims.height);
+
+    const place = (radius: number): { x: number; y: number } | null => {
+      const xArr = xRef.current, yArr = yRef.current, rArr = rRef.current;
+      const n = countRef.current;
+      for (let attempt = 0; attempt < 24; attempt++) {
+        const pos = getRandomPositionInShape(radius + 12, dims);
+        let ok = true;
+        for (const o of out) {
+          const dx = o.x - pos.x, dy = o.y - pos.y;
+          const need = blockadeBound(o) + radius + 26;
+          if (dx * dx + dy * dy < need * need) { ok = false; break; }
+        }
+        // Never drop a blockade on top of a live bubble (spec section 10).
+        if (ok && xArr && yArr && rArr) {
+          for (let b = 0; b < n; b++) {
+            const dx = xArr[b] - pos.x, dy = yArr[b] - pos.y;
+            const need = rArr[b] + radius + 14;
+            if (dx * dx + dy * dy < need * need) { ok = false; break; }
+          }
+        }
+        if (ok) return pos;
+      }
+      return null;
+    };
+
+    for (let i = 0; i < total; i++) {
+      const kind = pool[Math.floor(Math.random() * pool.length)];
+      const meta = kind;
+      let b: ArenaBlockade | null = null;
+      const id = nextProjectileId++;
+      const base = { id, kind, createdAt: now, x: 0, y: 0, w: 0, h: 0, r: 0 };
+
+      switch (meta) {
+        case "stone":
+        case "invisible_wall":
+        case "breakable": {
+          const w = span * 0.11, h = span * 0.06;
+          const p = place(Math.max(w, h) / 2); if (!p) break;
+          b = { ...base, shape: "rect", x: p.x, y: p.y, w, h, r: 0, solid: true, hp: meta === "breakable" ? 3 : undefined };
+          break;
+        }
+        case "spike_block": {
+          const s = span * 0.05;
+          const p = place(s / 2); if (!p) break;
+          b = { ...base, shape: "rect", x: p.x, y: p.y, w: s, h: s, r: 0, solid: true };
+          break;
+        }
+        case "bouncy_pad": {
+          const s = span * 0.07;
+          const p = place(s / 2); if (!p) break;
+          b = { ...base, shape: "circle", x: p.x, y: p.y, w: 0, h: 0, r: s / 2, solid: false };
+          break;
+        }
+        case "moving_block": {
+          const w = span * 0.09, h = span * 0.055;
+          const p = place(Math.max(w, h) / 2); if (!p) break;
+          const q = place(Math.max(w, h) / 2) || p;
+          b = {
+            ...base, shape: "rect", x: p.x, y: p.y, w, h, r: 0, solid: true,
+            ax: p.x, ay: p.y, bx: q.x, by: q.y, t: 0, dir: 1, pathSpeed: 0.00018 * mvScale,
+          };
+          break;
+        }
+        case "rotating_bar": {
+          const w = span * 0.24, h = span * 0.035;
+          const p = place(w / 2); if (!p) break;
+          b = { ...base, shape: "rect", x: p.x, y: p.y, w, h, r: 0, solid: true, angle: Math.random() * Math.PI, spin: 0.0009 * mvScale };
+          break;
+        }
+        case "conveyor": {
+          const w = span * 0.16, h = span * 0.07;
+          const p = place(Math.max(w, h) / 2); if (!p) break;
+          const ang = Math.random() * Math.PI * 2;
+          b = { ...base, shape: "rect", x: p.x, y: p.y, w, h, r: 0, solid: false, fx: Math.cos(ang), fy: Math.sin(ang) };
+          break;
+        }
+        case "laser_wall": {
+          const horizontal = Math.random() < 0.5;
+          const w = horizontal ? span * 0.3 : span * 0.02;
+          const h = horizontal ? span * 0.02 : span * 0.3;
+          const p = place(Math.max(w, h) / 2); if (!p) break;
+          b = { ...base, shape: "rect", x: p.x, y: p.y, w, h, r: 0, solid: false, active: true };
+          break;
+        }
+        case "rotating_blade": {
+          const rr = span * 0.05;
+          const p = place(rr); if (!p) break;
+          b = { ...base, shape: "circle", x: p.x, y: p.y, w: 0, h: 0, r: rr, solid: false, angle: 0, spin: 0.004 * mvScale };
+          break;
+        }
+        case "energy_wall": {
+          const w = span * 0.2, h = span * 0.025;
+          const p = place(w / 2); if (!p) break;
+          b = { ...base, shape: "rect", x: p.x, y: p.y, w, h, r: 0, solid: true, expiresAt: now + (override || 8000) };
+          break;
+        }
+        case "asteroid": {
+          const rr = span * (0.035 + Math.random() * 0.03);
+          const p = place(rr); if (!p) break;
+          b = { ...base, shape: "circle", x: p.x, y: p.y, w: 0, h: 0, r: rr, solid: true };
+          break;
+        }
+        case "moving_asteroid": {
+          const rr = span * 0.04;
+          const p = place(rr); if (!p) break;
+          const q = place(rr) || p;
+          b = {
+            ...base, shape: "circle", x: p.x, y: p.y, w: 0, h: 0, r: rr, solid: true,
+            ax: p.x, ay: p.y, bx: q.x, by: q.y, t: 0, dir: 1, pathSpeed: 0.00015 * mvScale,
+          };
+          break;
+        }
+        case "vanishing_block": {
+          const w = span * 0.09, h = span * 0.05;
+          const p = place(Math.max(w, h) / 2); if (!p) break;
+          b = { ...base, shape: "rect", x: p.x, y: p.y, w, h, r: 0, solid: true, expiresAt: now + (override || 6000 + Math.random() * 4000) };
+          break;
+        }
+        case "pusher": {
+          const rr = span * 0.09;
+          const p = place(rr); if (!p) break;
+          const ang = Math.random() * Math.PI * 2;
+          b = { ...base, shape: "circle", x: p.x, y: p.y, w: 0, h: 0, r: rr, solid: false, fx: Math.cos(ang), fy: Math.sin(ang) };
+          break;
+        }
+        case "teleport_gate": {
+          const rr = span * 0.045;
+          const p = place(rr); if (!p) break;
+          const q = place(rr); if (!q) break;
+          const idB = nextProjectileId++;
+          const gateA: ArenaBlockade = { ...base, shape: "circle", x: p.x, y: p.y, w: 0, h: 0, r: rr, solid: false, linkId: idB };
+          const gateB: ArenaBlockade = { id: idB, kind: "teleport_gate", createdAt: now, shape: "circle", x: q.x, y: q.y, w: 0, h: 0, r: rr, solid: false, linkId: id };
+          out.push(gateA, gateB);
+          break;
+        }
+      }
+      if (b) {
+        if (override > 0 && b.expiresAt === undefined) b.expiresAt = now + override;
+        out.push(b);
+      }
+    }
+    return out;
+  };
+
+  // Spawn one zone of an allowed kind at a valid position.
+  const spawnArenaZone = (now: number) => {
+    const pool = zoneModeRef.current === "custom"
+      ? ARENA_ZONE_KINDS.filter((k) => zoneSelectedRef.current.has(k))
+      : ARENA_ZONE_KINDS;
+    if (pool.length === 0) return;
+    const dims = getArenaDimensions();
+    const kind = pool[Math.floor(Math.random() * pool.length)];
+    const span = Math.min(dims.width, dims.height);
+    const r = span * (0.08 + Math.random() * 0.06);
+    let placed: { x: number; y: number } | null = null;
+    for (let attempt = 0; attempt < 16; attempt++) {
+      const pos = getRandomPositionInShape(r * 0.5, dims);
+      let ok = true;
+      for (const z of arenaZonesRef.current) {
+        const dx = z.x - pos.x, dy = z.y - pos.y;
+        const need = z.r + r;
+        if (dx * dx + dy * dy < need * need) { ok = false; break; }
+      }
+      if (ok) { placed = pos; break; }
+    }
+    if (!placed) return;
+    const life = zoneDurationOverrideRef.current || 12000;
+    const ang = Math.random() * Math.PI * 2;
+    arenaZonesRef.current.push({
+      id: nextProjectileId++, kind, x: placed.x, y: placed.y, r,
+      createdAt: now, expiresAt: now + life,
+      fx: Math.cos(ang), fy: Math.sin(ang),
+    });
+    setArenaZones([...arenaZonesRef.current]);
+  };
+
+  // Reset every global multiplier an event may have changed (spec section 8).
+  const clearEventGlobals = () => {
+    globalDamageMultRef.current = 1;
+    globalStepMultRef.current = 1;
+    arenaShrinkPadRef.current = 0;
+    setArenaShrinkPad(0);
+    arenaMeteorsRef.current = [];
+    setArenaMeteors([]);
+    arenaSwordsRef.current = [];
+    setArenaSwords([]);
+  };
+
 
   // Generate spike positions on arena shape boundaries
   const generateSpikesForShape = (count: number, _size: number, dims: { width: number; height: number }): Omit<Spike, "size">[] => {
@@ -1328,54 +2652,60 @@ const ArenaPage: React.FC = () => {
     }
 
     // Inset spikes slightly so they sit inside the wall
-    const inset = spikeSize * 0.4;
-    spikes.forEach(s => {
-      s.x += s.nx * inset;
-      s.y += s.ny * inset;
-    });
-
     return spikes;
   };
 
-  // Get CSS styles for arena shape
+  // Get CSS styles for arena shape. Circle stays a border-radius; every other
+  // shape derives its clip-path from the same normalized polygon used for physics.
   const getArenaShapeStyle = (): React.CSSProperties => {
-    switch (arenaShape) {
-      case ARENA_SHAPES.CIRCLE:
-        return { borderRadius: "50%" };
-      
-      case ARENA_SHAPES.HEXAGON:
-        return { clipPath: "polygon(50% 0%, 100% 25%, 100% 75%, 50% 100%, 0% 75%, 0% 25%)" };
-      
-      case ARENA_SHAPES.PENTAGON:
-        return { clipPath: "polygon(50% 0%, 100% 38%, 82% 100%, 18% 100%, 0% 38%)" };
-      
-      case ARENA_SHAPES.DIAMOND:
-        return { clipPath: "polygon(50% 0%, 100% 50%, 50% 100%, 0% 50%)" };
-      
-      case ARENA_SHAPES.HOURGLASS:
-        return { clipPath: "polygon(0% 0%, 100% 0%, 70% 50%, 100% 100%, 0% 100%, 30% 50%)" };
-      
-      case ARENA_SHAPES.CROSS:
-        return { clipPath: "polygon(40% 0%, 60% 0%, 60% 40%, 100% 40%, 100% 60%, 60% 60%, 60% 100%, 40% 100%, 40% 60%, 0% 60%, 0% 40%, 40% 40%)" };
-      
-      case ARENA_SHAPES.SPIRAL:
-        return { borderRadius: "20px" };
-      
-      case ARENA_SHAPES.FUNNEL:
-        return { clipPath: "polygon(0% 0%, 100% 0%, 80% 100%, 20% 100%)" };
-      
-      case ARENA_SHAPES.WAVE:
-        return { clipPath: "polygon(0% 10%, 10% 0%, 20% 5%, 30% 0%, 40% 5%, 50% 0%, 60% 5%, 70% 0%, 80% 5%, 90% 0%, 100% 10%, 100% 90%, 90% 100%, 80% 95%, 70% 100%, 60% 95%, 50% 100%, 40% 95%, 30% 100%, 20% 95%, 10% 100%, 0% 90%)" };
-      
-      case ARENA_SHAPES.RECTANGLE:
-      default:
-        return { borderRadius: "0" };
+    if (arenaShape === ARENA_SHAPES.CIRCLE) return { borderRadius: "50%" };
+    if (arenaShape === ARENA_SHAPES.RING) {
+      // Stops are expressed as % of "closest-side" (center-to-edge distance) so they
+      // land on the exact same radius as the SVG outline's rx/ry (fraction of box width).
+      // Without the explicit "closest-side" keyword, bare percentages resolve against
+      // farthest-corner (the diagonal) — a different, larger reference length — which is
+      // why the mask's visible material previously sat well inside the neon SVG outline.
+      const innerPct = RING_INNER_FRAC * 200;
+      const outerPct = RING_OUTER_FRAC * 200;
+      const gradient = `radial-gradient(circle closest-side at 50% 50%, transparent 0 ${(innerPct - 0.4).toFixed(1)}%, #000 ${(innerPct + 0.4).toFixed(1)}% ${outerPct}%, transparent ${(outerPct + 0.8).toFixed(1)}%)`;
+      return {
+        borderRadius: "50%",
+        WebkitMaskImage: gradient,
+        maskImage: gradient,
+      };
     }
+    if (arenaShape === ARENA_SHAPES.RECTANGLE || arenaShape === ARENA_SHAPES.SQUARE) return { borderRadius: "0" };
+    const poly = SHAPE_POLYGONS[arenaShape];
+    if (!poly) return { borderRadius: "0" };
+    return { clipPath: polygonToClipPath(poly) };
+  };
+
+  // CSS clipping keeps the game mechanics inside each arena. This separate SVG
+  // traces the exact same geometry so non-rectangular arenas get a real neon
+  // edge instead of a rectangular CSS border.
+  const renderArenaOutline = () => {
+    const props = { fill: "none", stroke: "var(--arena-glow-primary)", strokeWidth: 8, vectorEffect: "non-scaling-stroke" as const };
+    if (arenaShape === ARENA_SHAPES.CIRCLE) return <ellipse cx="50" cy="50" rx="50" ry="50" {...props} />;
+    if (arenaShape === ARENA_SHAPES.RECTANGLE || arenaShape === ARENA_SHAPES.SQUARE) {
+      return <rect x="0" y="0" width="100" height="100" {...props} />;
+    }
+    if (arenaShape === ARENA_SHAPES.RING) {
+      // Ring draws both the outer boundary and the inner tube wall — a closed donut.
+      return (
+        <>
+          <ellipse cx="50" cy="50" rx={RING_OUTER_FRAC * 100} ry={RING_OUTER_FRAC * 100} {...props} />
+          <ellipse cx="50" cy="50" rx={RING_INNER_FRAC * 100} ry={RING_INNER_FRAC * 100} {...props} />
+        </>
+      );
+    }
+    const poly = SHAPE_POLYGONS[arenaShape];
+    if (poly) return <polygon points={polygonToSvgPoints(poly)} {...props} />;
+    return <rect x="0" y="0" width="100" height="100" {...props} />;
   };
 
   const ensureCapacity = (needed: number) => {
     let cap = MAX_CAPACITY.current;
-    if (needed <= cap) return;
+    if (needed <= cap && idListRef.current && avatarIndexRef.current) return;
     while (cap < needed) cap = Math.max(cap * 2, cap + 1024);
     const idNew = new Int32Array(cap);
     const xNew = new Float32Array(cap);
@@ -1386,6 +2716,7 @@ const ArenaPage: React.FC = () => {
     const rTargetNew = new Float32Array(cap);
     const healthNew = new Float32Array(cap);
     const imgIdxNew = new Int32Array(cap);
+    const avatarIdxNew = new Int32Array(cap);
 
     const n = countRef.current;
     if (idListRef.current) idNew.set(idListRef.current.subarray(0, n));
@@ -1397,6 +2728,7 @@ const ArenaPage: React.FC = () => {
     if (rTargetRef.current) rTargetNew.set(rTargetRef.current.subarray(0, n));
     if (healthRef.current) healthNew.set(healthRef.current.subarray(0, n));
     if (imgIndexRef.current) imgIdxNew.set(imgIndexRef.current.subarray(0, n));
+    if (avatarIndexRef.current) avatarIdxNew.set(avatarIndexRef.current.subarray(0, n));
 
     idListRef.current = idNew;
     xRef.current = xNew;
@@ -1407,6 +2739,7 @@ const ArenaPage: React.FC = () => {
     rTargetRef.current = rTargetNew;
     healthRef.current = healthNew;
     imgIndexRef.current = imgIdxNew;
+    avatarIndexRef.current = avatarIdxNew;
     MAX_CAPACITY.current = cap;
   };
 
@@ -1747,6 +3080,56 @@ const ArenaPage: React.FC = () => {
     ctx.restore();
   };
 
+  const drawAvatarOnCanvas = (ctx: CanvasRenderingContext2D, x: number, y: number, radius: number, avatarIndex: number): boolean => {
+    const image = textureCache.current.get(AVATAR_SPRITE_SRC);
+    if (!image || !image.complete || !image.naturalWidth) {
+      ctx.beginPath();
+      ctx.arc(x, y, radius, 0, Math.PI * 2);
+      ctx.fillStyle = ["#ef4444", "#22d3ee", "#22c55e", "#facc15", "#a855f7", "#e5e7eb"][avatarIndex % 6];
+      ctx.fill();
+      return false;
+    }
+    const sourceWidth = image.naturalWidth / 6;
+    ctx.save();
+    ctx.beginPath();
+    ctx.arc(x, y, radius, 0, Math.PI * 2);
+    ctx.clip();
+    ctx.drawImage(image, Math.max(0, avatarIndex % 6) * sourceWidth, 0, sourceWidth, image.naturalHeight, x - radius, y - radius, radius * 2, radius * 2);
+    ctx.restore();
+    return true;
+  };
+
+  const drawBubbleGlowAndTrail = (ctx: CanvasRenderingContext2D, x: number, y: number, radius: number, vx: number, vy: number, color: string) => {
+    const velocity = Math.hypot(vx, vy);
+    if (velocity < 0.05 || radius < 16) return;
+    const directionX = vx / velocity;
+    const directionY = vy / velocity;
+    const trailLength = Math.min(radius * 1.6, 12 + velocity * 2.5);
+    const trailParticles = [
+      { distance: radius * 0.95 + trailLength * 0.2, size: radius * 0.22, alpha: 0.72 },
+      { distance: radius * 0.95 + trailLength * 0.58, size: radius * 0.15, alpha: 0.42 },
+      { distance: radius * 0.95 + trailLength, size: radius * 0.09, alpha: 0.2 },
+    ];
+    ctx.save();
+    ctx.shadowColor = color;
+    ctx.shadowBlur = Math.max(5, radius * 0.2);
+    ctx.globalCompositeOperation = "lighter";
+    for (const particle of trailParticles) {
+      ctx.globalAlpha = particle.alpha;
+      ctx.fillStyle = color;
+      ctx.beginPath();
+      ctx.arc(
+        x - directionX * particle.distance,
+        y - directionY * particle.distance,
+        particle.size,
+        0,
+        Math.PI * 2,
+      );
+      ctx.fill();
+    }
+    ctx.restore();
+  };
+
   // ---------- Loading images & creating particles ----------
 
   useLayoutEffect(() => {
@@ -1770,6 +3153,7 @@ const ArenaPage: React.FC = () => {
         const rTArr = rTargetRef.current!;
         const hArr = healthRef.current!;
         const imgIdxArr = imgIndexRef.current!;
+          const avatarIdxArr = avatarIndexRef.current!;
 
         for (let i = 0; i < bubblesToAdd.length; i++) {
           const b = bubblesToAdd[i];
@@ -1784,6 +3168,7 @@ const ArenaPage: React.FC = () => {
           rTArr[idx] = b.radius;
           rArr[idx] = INITIAL_RADIUS;
           hArr[idx] = b.health;
+          avatarIdxArr[idx] = b.avatar ?? -1;
           if (b.imgSrc) {
             const imgSrc = b.imgSrc;
             const imgIndex = getImgIndex(imgSrc);
@@ -1808,6 +3193,8 @@ const ArenaPage: React.FC = () => {
             vx: vxArr[k],
             vy: vyArr[k],
             id: idArr[k],
+            name: playerNamesRef.current.get(idArr[k]),
+            avatar: avatarIdxArr[k] >= 0 ? avatarIdxArr[k] : undefined,
           });
         }
         setUiBubblesSnapshot(snap);
@@ -1815,30 +3202,139 @@ const ArenaPage: React.FC = () => {
         startRevealPipelineIfNeeded();
       };
 
+      let matchPayload: MatchPayload | null = null;
+      try {
+        const rawPayload = sessionStorage.getItem("bubblebash.match");
+        if (rawPayload) matchPayload = JSON.parse(rawPayload) as MatchPayload;
+        if (customRosterRequested && rawPayload !== customMatchPayloadRef.current) {
+          customMatchPayloadRef.current = rawPayload || "";
+          customMatchLoadedRef.current = false;
+        }
+      } catch (e) {
+        console.warn("Could not read Bubble Bash match payload", e);
+      }
+
+      if (customRosterRequested && matchPayload?.players?.length) {
+        if (customMatchLoadedRef.current) return;
+        customMatchLoadedRef.current = true;
+        brawlTeamsRef.current.clear();
+        brawl1vManyAllMembersRef.current = [];
+        preloadImage(AVATAR_SPRITE_SRC).catch(() => {});
+        const targetRadius = arenaType === ARENA_TYPES.BRAWL || arenaType === ARENA_TYPES.BOSS ? 50 : getRadiusForCount(matchPayload.players.length);
+        baseBubbleRadiusRef.current = targetRadius;
+        const imagePath = "images";
+        const makePlayerBubble = (player: MatchPlayer, index: number): BubbleData => {
+          const position = getRandomPositionInShape(targetRadius, arena);
+          const id = nextBubbleId++;
+          const playerName = player.name || player.username || player.playerName || `Player ${index + 1}`;
+          const imageName = player.imageName || player.image || player.imageSrc;
+          const imageSrc = imageName ? (imageName.startsWith("http") || imageName.startsWith("/") ? imageName : `http://localhost:5000/api/${imagePath}/${encodeURIComponent(imageName)}`) : "";
+          playerNamesRef.current.set(id, playerName);
+            if (arenaType === ARENA_TYPES.BRAWL) brawlTeamsRef.current.set(id, matchPayload?.mode === "duel" ? (index === 0 ? "solo" : "many") : player.role === "solo" || matchPayload?.soloPlayer === player.name ? "solo" : "many");
+          return {
+            x: position.x,
+            y: position.y,
+            radius: targetRadius,
+            health: player.hp || 100,
+            imgSrc: imageSrc,
+            avatar: imageSrc ? undefined : (player.avatar ?? index % 6),
+            vx: Math.cos(Math.random() * Math.PI * 2) * speed * 0.5,
+            vy: Math.sin(Math.random() * Math.PI * 2) * speed * 0.5,
+            id,
+            name: playerName,
+          };
+        };
+
+        const assignEntryPowers = (players: MatchPlayer[], startIndex: number) => {
+          // Normal-mode powers are opt-in only via the in-arena "Normal Powers" toggle —
+          // never auto-armed from roster data, so bubbles don't fire until the user enables it.
+          if (arenaType === ARENA_TYPES.NORMAL) return;
+          const nowMs = Date.now();
+          players.forEach((player, index) => {
+            const power = player.powers?.[0]?.key;
+            const bubbleId = idListRef.current?.[startIndex + index];
+            if (power && bubbleId != null) {
+              bubblePowersRef.current.set(bubbleId, { type: power, expiresAt: Infinity, lastShot: nowMs - 1000 });
+            }
+          });
+          if (bubblePowersRef.current.size) {
+            setBubblePowers(new Map(bubblePowersRef.current));
+            brawlPowersEnabledRef.current = true;
+            brawlPowersAutoEnabledRef.current = true;
+            preAssignedAppliedRef.current = true;
+          }
+        };
+
+        if (arenaType === ARENA_TYPES.BOSS) {
+          const bossPlayer = matchPayload.players.find((player) => player.role === "boss") || matchPayload.players[0];
+          const normalPlayers = matchPayload.players.filter((player) => player.role !== "boss" && player !== bossPlayer);
+          const startIndex = countRef.current;
+          await addBubblesToArrays(normalPlayers.map(makePlayerBubble));
+          assignEntryPowers(normalPlayers, startIndex);
+          const bossPosition = getRandomPositionInShape(baseSuperBubbleRadiusRef.current, arena);
+          const bossImagesResponse = await fetch("http://localhost:5000/api/superbubbleimg");
+          const bossImages: string[] = await bossImagesResponse.json();
+          setSuperbubbleImageOptions(bossImages);
+          const selectedBossImage = bossPlayer.bossImageName || selectedSuperbubbleImageRef.current || bossImages[0] || "";
+          const bossImageSrc = bossPlayer.bossImageName
+            ? `http://localhost:5000/api/superbubbleimg/${encodeURIComponent(bossPlayer.bossImageName)}`
+            : bossPlayer.imageName
+              ? (bossPlayer.imageName.startsWith("http") || bossPlayer.imageName.startsWith("/") ? bossPlayer.imageName : `http://localhost:5000/api/images/${encodeURIComponent(bossPlayer.imageName)}`)
+              : (selectedBossImage ? `http://localhost:5000/api/superbubbleimg/${encodeURIComponent(selectedBossImage)}` : "");
+          const bossName = (bossPlayer.bossImageName ? selectedBossImage : bossPlayer.name || bossPlayer.imageName || selectedBossImage).replace(/\.(png|jpg|jpeg|gif|bmp|webp|svg)$/i, '') || "Boss";
+          superBubbleRef.current = {
+            x: bossPosition.x,
+            y: bossPosition.y,
+            radius: baseSuperBubbleRadiusRef.current,
+            health: bossSuperbubbleHealth,
+            imgSrc: bossImageSrc,
+            avatar: bossImageSrc ? undefined : 0,
+            name: bossName,
+            vx: speed * 0.6,
+            vy: speed * 0.4,
+            id: nextBubbleId++,
+          };
+          setSuperBubbleSnapshot({ ...superBubbleRef.current });
+        } else {
+          const startIndex = countRef.current;
+          await addBubblesToArrays(matchPayload.players.map(makePlayerBubble));
+          assignEntryPowers(matchPayload.players, startIndex);
+        }
+        return;
+      }
+
       if (arenaType === ARENA_TYPES.NORMAL) {
+        // Enter the arena even when the images API is down or empty: fall back to
+        // a default set of image-less bubbles (rendered as colored avatars).
+        const FALLBACK_BUBBLE_COUNT = 20;
+        let images: string[] = [];
         try {
           const res = await fetch("http://localhost:5000/api/images");
-          const images: string[] = await res.json();
-          imageListRef.current = images;
-          const targetRadius = getRadiusForCount(images.length);
-          const newBubbles: BubbleData[] = [];
-          for (const img of images) {
-            const pos = getRandomPositionInShape(targetRadius, arena);
-            newBubbles.push({
-              x: pos.x,
-              y: pos.y,
-              radius: targetRadius,
-              health: 100,
-              imgSrc: `http://localhost:5000/api/images/${encodeURIComponent(img)}`,
-              vx: Math.cos(Math.random() * Math.PI * 2) * speed * 0.6,
-              vy: Math.sin(Math.random() * Math.PI * 2) * speed * 0.6,
-              id: nextBubbleId++,
-            });
-          }
-          await addBubblesToArrays(newBubbles, false);
+          const data = await res.json();
+          if (Array.isArray(data)) images = data;
         } catch (e) {
-          console.error("Error fetching normal images", e);
+          console.warn("Images API unavailable — entering arena without bubble images", e);
         }
+        imageListRef.current = images;
+        const count = images.length > 0 ? images.length : FALLBACK_BUBBLE_COUNT;
+        const targetRadius = getRadiusForCount(count);
+        const newBubbles: BubbleData[] = [];
+        for (let i = 0; i < count; i++) {
+          const img = images[i];
+          const pos = getRandomPositionInShape(targetRadius, arena);
+          newBubbles.push({
+            x: pos.x,
+            y: pos.y,
+            radius: targetRadius,
+            health: 100,
+            imgSrc: img ? `http://localhost:5000/api/images/${encodeURIComponent(img)}` : "",
+            avatar: img ? undefined : i % 6,
+            vx: Math.cos(Math.random() * Math.PI * 2) * speed * 0.6,
+            vy: Math.sin(Math.random() * Math.PI * 2) * speed * 0.6,
+            id: nextBubbleId++,
+          });
+        }
+        await addBubblesToArrays(newBubbles, false);
       } else if (arenaType === ARENA_TYPES.BRAWL) {
         // brawl arena
         try {
@@ -2022,8 +3518,10 @@ const ArenaPage: React.FC = () => {
         try {
           const res2 = await fetch("http://localhost:5000/api/superbubbleimg");
           const imgs: string[] = await res2.json();
+          setSuperbubbleImageOptions(imgs);
           let src = "";
-          if (imgs.length > 0) src = `http://localhost:5000/api/superbubbleimg/${encodeURIComponent(imgs[0])}`;
+          const selectedImage = selectedSuperbubbleImageRef.current || imgs[0] || "";
+          if (selectedImage) src = `http://localhost:5000/api/superbubbleimg/${encodeURIComponent(selectedImage)}`;
           bossImgRef.current = src;
           const dim = getArenaDimensions();
           const appliedSuperRadius = baseSuperBubbleRadiusRef.current * bossBubbleSizeMultiplier;
@@ -2039,7 +3537,7 @@ const ArenaPage: React.FC = () => {
           };
           // Register the superbubble player name with stats client (remove extension from the name)
           if (imgs.length > 0) {
-            const superbubbleName = imgs[0].replace(/\.(png|jpg|jpeg|gif|bmp|webp|svg)$/i, '');
+            const superbubbleName = selectedImage.replace(/\.(png|jpg|jpeg|gif|bmp|webp|svg)$/i, '');
             setSuperbubblePlayer(superbubbleName);
           }
           setSuperBubbleSnapshot(
@@ -2064,7 +3562,7 @@ const ArenaPage: React.FC = () => {
     })();
 
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [arenaType, arenaReady, bossSuperbubbleHealth]);
+  }, [arenaType, arenaReady, bossSuperbubbleHealth, matchQuery]);
 
   // Update boss bubble sizes when multiplier changes
   useEffect(() => {
@@ -2118,6 +3616,8 @@ const ArenaPage: React.FC = () => {
         vx: superBubbleRef.current.vx,
         vy: superBubbleRef.current.vy,
         id: superBubbleRef.current.id,
+        name: superBubbleRef.current.name,
+        avatar: superBubbleRef.current.avatar,
       });
     }
   }, [bossBubbleSizeMultiplier, brawlBubbleSizeMultiplier, arenaType, arenaReady, isRunning]);
@@ -2227,6 +3727,9 @@ const ArenaPage: React.FC = () => {
     brawlBubblesProjectileCountRef.current = brawlBubblesProjectileCount;
     brawlBubblesPowerModeRef.current = brawlBubblesPowerMode;
     brawlBubblesProjectileSpeedRef.current = brawlBubblesProjectileSpeed;
+    // Sync firing-mode refs
+    playerBubblesFiringModeRef.current = playerBubblesFiringMode;
+    brawlBubblesFiringModeRef.current = brawlBubblesFiringMode;
     // Sync blade damage refs
     normalBladeDamageRef.current = normalBladeDamage;
     bossNormalBladeDamageRef.current = bossNormalBladeDamage;
@@ -2234,7 +3737,7 @@ const ArenaPage: React.FC = () => {
     brawlBladeDamageRef.current = brawlBladeDamage;
     // Sync blade assignments ref
     bladeAssignmentsRef.current = new Set(bladeAssignments);
-  }, [playerBubblesProjectileCount, playerBubblesPowerMode, playerBubblesProjectileSpeed, brawlBubblesProjectileCount, brawlBubblesPowerMode, brawlBubblesProjectileSpeed, normalBladeDamage, bossNormalBladeDamage, bossSuperbubbleBladeDamage, brawlBladeDamage, bladeAssignments]);
+  }, [playerBubblesProjectileCount, playerBubblesPowerMode, playerBubblesProjectileSpeed, brawlBubblesProjectileCount, brawlBubblesPowerMode, brawlBubblesProjectileSpeed, playerBubblesFiringMode, brawlBubblesFiringMode, normalBladeDamage, bossNormalBladeDamage, bossSuperbubbleBladeDamage, brawlBladeDamage, bladeAssignments]);
 
   // Spike placement effect (respect arena dims)
   useEffect(() => {
@@ -2275,6 +3778,8 @@ const ArenaPage: React.FC = () => {
         vx: vxArr[i],
         vy: vyArr[i],
         id: idArr[i],
+        name: playerNamesRef.current.get(idArr[i]),
+        avatar: avatarIndexRef.current && avatarIndexRef.current[i] >= 0 ? avatarIndexRef.current[i] : undefined,
       });
     }
     setUiBubblesSnapshot(snap);
@@ -2367,8 +3872,7 @@ const ArenaPage: React.FC = () => {
       ctx.shadowColor = "transparent";
       
       // Hard fill to eliminate all trails (more reliable than clearRect)
-      ctx.fillStyle = arenaInsideColor || "#1a1a1a";
-      ctx.fillRect(0, 0, canvas.width, canvas.height);
+      ctx.clearRect(0, 0, canvas.width, canvas.height);
       
       // Reapply DPR transform
       ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
@@ -2378,7 +3882,7 @@ const ArenaPage: React.FC = () => {
 
       // Calculate health bar width based on bubble count
       const bubbleCount = countRef.current;
-      let healthBarWidth = 4;
+      let healthBarWidth = 3;
       if (bubbleCount > 5000) {
         healthBarWidth = 1;
       } else if (bubbleCount >= 1000 && bubbleCount <= 5000) {
@@ -2386,11 +3890,11 @@ const ArenaPage: React.FC = () => {
       } else if (bubbleCount >= 500 && bubbleCount < 1000) {
         healthBarWidth = 2;
       } else if (bubbleCount >= 100 && bubbleCount < 500) {
-        healthBarWidth = 2.5;
+        healthBarWidth = 2.2;
       } else if (bubbleCount >= 50 && bubbleCount < 100) {
-        healthBarWidth = 3;
+        healthBarWidth = 2.5;
       } else if (bubbleCount >= 10 && bubbleCount < 50) {
-        healthBarWidth = 3.5;
+        healthBarWidth = 2.8;
       }
 
       processImageDecodeQueue();
@@ -2432,8 +3936,12 @@ const ArenaPage: React.FC = () => {
       const rArrRender = rRef.current!;
       const xArrRender = xRef.current!;
       const yArrRender = yRef.current!;
+      const vxArrRender = vxRef.current!;
+      const vyArrRender = vyRef.current!;
       const hArrRender = healthRef.current!;
       const imgIdxArrRender = imgIndexRef.current!;
+      const idArrRender = idListRef.current!;
+      const fadedSet = fadedBubblesRef.current;
 
       for (let i = 0; i < nRender; i++) {
         const radius = rArrRender[i];
@@ -2441,11 +3949,27 @@ const ArenaPage: React.FC = () => {
         const y = yArrRender[i];
         const hp = hArrRender[i];
         const imgIdx = imgIdxArrRender[i];
+        const avatarIdx = avatarIndexRef.current?.[i] ?? -1;
+        // Invisibility Zone only fades the visuals; collision is untouched.
+        const faded = fadedSet.size > 0 && fadedSet.has(idArrRender[i]);
+        ctx.globalAlpha = faded ? 0.28 : 1;
         let strokeColor = "#ff4d4d";
         if (hp > 60) strokeColor = "#2ecc71";
         else if (hp > 30) strokeColor = "#f1c40f";
 
+        drawBubbleGlowAndTrail(ctx, x, y, radius, vxArrRender[i], vyArrRender[i], strokeColor);
         let drawnImage = false;
+        if (avatarIdx >= 0) {
+          drawAvatarOnCanvas(ctx, x, y, radius, avatarIdx);
+          if (radius >= 8) {
+            ctx.beginPath();
+            ctx.arc(x, y, radius + 2, -Math.PI / 2, -Math.PI / 2 + (Math.PI * 2 * Math.min(1, hp / 100)));
+            ctx.strokeStyle = strokeColor;
+            ctx.lineWidth = healthBarWidth;
+            ctx.stroke();
+          }
+          continue;
+        }
         if (radius >= IMAGE_SHOW_RADIUS && imgIdx >= 0) {
           const src = imgSrcsRef.current[imgIdx];
           const bucket = pickBucketForRadius(radius);
@@ -2489,7 +4013,7 @@ const ArenaPage: React.FC = () => {
         if (drawnImage) {
           if (radius >= 8) {
             ctx.beginPath();
-            ctx.arc(x, y, radius + 2, -Math.PI / 2, -Math.PI / 2 + (Math.PI * 2 * (hp / 100)));
+            ctx.arc(x, y, radius + 2, -Math.PI / 2, -Math.PI / 2 + (Math.PI * 2 * Math.min(1, hp / 100)));
             ctx.strokeStyle = strokeColor;
             ctx.lineWidth = healthBarWidth;
             ctx.stroke();
@@ -2501,15 +4025,16 @@ const ArenaPage: React.FC = () => {
         ctx.beginPath();
         ctx.arc(x, y, Math.max(1, radius), 0, Math.PI * 2);
         ctx.fillStyle = "#fff";
-        ctx.globalAlpha = 0.95;
+        ctx.globalAlpha = faded ? 0.25 : 0.95;
         ctx.fill();
-        ctx.globalAlpha = 1;
+        ctx.globalAlpha = faded ? 0.28 : 1;
         ctx.beginPath();
-        ctx.arc(x, y, Math.max(1, radius) + 2, -Math.PI / 2, -Math.PI / 2 + (Math.PI * 2 * (hp / 100)));
+        ctx.arc(x, y, Math.max(1, radius) + 2, -Math.PI / 2, -Math.PI / 2 + (Math.PI * 2 * Math.min(1, hp / 100)));
         ctx.strokeStyle = strokeColor;
         ctx.lineWidth = healthBarWidth * 0.5;
         ctx.stroke();
       }
+      ctx.globalAlpha = 1;
       resetCtx(ctx);
       // superbubble draw in preview (if present)
       const sbToRender = superBubbleRef.current || superBubbleSnapshot;
@@ -2608,7 +4133,7 @@ const ArenaPage: React.FC = () => {
 
     const loop = (now: number) => {
       // HARD GUARD: only render when running
-      if (!isRunning) {
+      if (!isRunning || gameEndedRef.current) {
         cancelAnimationFrame(rafId);
         return;
       }
@@ -2624,8 +4149,7 @@ const ArenaPage: React.FC = () => {
       ctx.shadowColor = "transparent";
       
       // Hard fill to eliminate all trails (more reliable than clearRect)
-      ctx.fillStyle = arenaInsideColor || "#1a1a1a";
-      ctx.fillRect(0, 0, canvas.width, canvas.height);
+      ctx.clearRect(0, 0, canvas.width, canvas.height);
       
       // Reapply DPR transform
       ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
@@ -2891,14 +4415,207 @@ const ArenaPage: React.FC = () => {
 
         // move normals
         const dims = getArenaDimensions();
+        const frozen = isTimeStopped();
+
+        // ---- 1. Event state (spec section 7) -------------------------------
+        if (eventsEnabledRef.current) {
+          const ev = activeEventRef.current;
+          if (ev) {
+            if (ev.phase === "warning" && nowMs >= ev.startedAt + EVENT_WARNING_MS) {
+              // Warning finished: activate the event and apply its global effect.
+              const meta = ARENA_EVENT_INFO[ev.kind];
+              const life = eventDurationOverrideRef.current || meta.durationMs;
+              const started: ArenaEventState = { ...ev, phase: "active", startedAt: nowMs, endsAt: nowMs + life };
+              const mod = ev.kind === "random_modifier" ? ev.modifier : ev.kind;
+              if (mod === "double_damage") globalDamageMultRef.current = 2;
+              else if (mod === "low_gravity") globalStepMultRef.current = 0.6;
+              else if (mod === "speed_boost") globalStepMultRef.current = 1.5;
+              else if (mod === "slow") globalStepMultRef.current = 0.5;
+              else if (mod === "reverse_controls" || mod === "reverse_arena") {
+                for (let i = 0; i < n; i++) { vxArr[i] = -vxArr[i]; vyArr[i] = -vyArr[i]; }
+              }
+              rainTickRef.current = 0;
+              activeEventRef.current = started;
+              setActiveEvent(started);
+            } else if (ev.phase === "active") {
+              if (nowMs >= ev.endsAt) {
+                // ---- end + cleanup: every global returns to neutral.
+                clearEventGlobals();
+                activeEventRef.current = null;
+                setActiveEvent(null);
+                lastEventAtRef.current = nowMs;
+              } else {
+                const elapsed = nowMs - ev.startedAt;
+                const total = Math.max(1, ev.endsAt - ev.startedAt);
+                const mod = ev.kind === "random_modifier" ? ev.modifier : ev.kind;
+                if (mod === "shrinking_arena") {
+                  // Contract for the first 70% then release; never teleports bubbles.
+                  const p = elapsed / total;
+                  const grow = p < 0.7 ? p / 0.7 : Math.max(0, (1 - p) / 0.3);
+                  arenaShrinkPadRef.current = grow * Math.min(dims.width, dims.height) * 0.12;
+                  if (nowMs - eventTickRef.current > 100) setArenaShrinkPad(arenaShrinkPadRef.current);
+                }
+                // ---- Falling "rain" spawners: items fall from the top of the arena to
+                // the bottom for the full active duration (health_rain/item_chaos hearts
+                // or power icons, double_damage swords, meteor_shower meteors).
+                if (nowMs - rainTickRef.current > 220) {
+                  rainTickRef.current = nowMs;
+                  if ((mod === "health_rain" || mod === "item_chaos" || mod === "pickup_frenzy") && arenaPickupsRef.current.length < 24) {
+                    const kind: ArenaPickupKind = mod === "health_rain"
+                      ? (Math.random() < 0.5 ? "health_kit" : "mega_health")
+                      : ARENA_PICKUP_KINDS[Math.floor(Math.random() * ARENA_PICKUP_KINDS.length)];
+                    const rx = ARENA_PICKUP_RADIUS + Math.random() * (dims.width - 2 * ARENA_PICKUP_RADIUS);
+                    arenaPickupsRef.current.push({
+                      id: nextProjectileId++, x: rx, y: -ARENA_PICKUP_RADIUS, kind,
+                      createdAt: nowMs, expiresAt: nowMs + total + 4000,
+                      vy: 3 + Math.random() * 2,
+                    });
+                    setArenaPickups([...arenaPickupsRef.current]);
+                  } else if (mod === "meteor_shower" && arenaMeteorsRef.current.length < 24) {
+                    const r = 14;
+                    const rx = r + Math.random() * (dims.width - 2 * r);
+                    arenaMeteorsRef.current.push({
+                      id: nextProjectileId++, x: rx, y: -r,
+                      vx: (Math.random() - 0.5) * 0.6, vy: 4 + Math.random() * 2.5, r,
+                    });
+                    setArenaMeteors([...arenaMeteorsRef.current]);
+                  } else if (mod === "double_damage" && arenaSwordsRef.current.length < 24) {
+                    const rx = 16 + Math.random() * (dims.width - 32);
+                    arenaSwordsRef.current.push({
+                      id: nextProjectileId++, x: rx, y: -24,
+                      vy: 4 + Math.random() * 2.5, rot: Math.random() * 360,
+                    });
+                    setArenaSwords([...arenaSwordsRef.current]);
+                  }
+                }
+                if (nowMs - eventTickRef.current > 100) eventTickRef.current = nowMs;
+              }
+            }
+          } else if (!startGrace && n > 0) {
+            const gapMs = eventFrequencyRef.current === "low" ? 25000 : eventFrequencyRef.current === "high" ? 9000 : 16000;
+            if (nowMs - lastEventAtRef.current > gapMs) {
+              const pool = eventModeRef.current === "custom"
+                ? ARENA_EVENT_KINDS.filter((k) => eventSelectedRef.current.has(k))
+                : ARENA_EVENT_KINDS;
+              if (pool.length > 0) {
+                const kind = pool[Math.floor(Math.random() * pool.length)];
+                const modifier = kind === "random_modifier"
+                  ? RANDOM_MODIFIER_CHOICES[Math.floor(Math.random() * RANDOM_MODIFIER_CHOICES.length)]
+                  : undefined;
+                const label = modifier
+                  ? `${ARENA_EVENT_INFO.random_modifier.name}: ${modifier.replace(/_/g, " ")}`
+                  : ARENA_EVENT_INFO[kind].name;
+                const next: ArenaEventState = { kind, phase: "warning", startedAt: nowMs, endsAt: 0, label, modifier };
+                activeEventRef.current = next;
+                setActiveEvent(next);
+                lastEventAtRef.current = nowMs;
+              }
+            }
+          }
+          // Meteors fall top-to-bottom and expire once they pass the arena floor,
+          // independent of the event phase (so already-falling ones finish their drop).
+          if (arenaMeteorsRef.current.length > 0) {
+            for (const m of arenaMeteorsRef.current) { m.x += m.vx; m.y += m.vy; }
+            arenaMeteorsRef.current = arenaMeteorsRef.current.filter((m) => m.y - m.r <= dims.height + 40);
+            setArenaMeteors([...arenaMeteorsRef.current]);
+          }
+          // Swords (Double Damage event) fall top-to-bottom; purely decorative.
+          if (arenaSwordsRef.current.length > 0) {
+            for (const s of arenaSwordsRef.current) { s.y += s.vy; s.rot += 6; }
+            arenaSwordsRef.current = arenaSwordsRef.current.filter((s) => s.y <= dims.height + 40);
+            setArenaSwords([...arenaSwordsRef.current]);
+          }
+        }
+
+        // ---- 2. Zones (spec section 6) -------------------------------------
+        if (zonesEnabledRef.current) {
+          const zFreq = zoneFrequencyRef.current;
+          const zMax = zFreq === "low" ? 2 : zFreq === "high" ? 5 : 3;
+          const zGap = zFreq === "low" ? 9000 : zFreq === "high" ? 3500 : 6000;
+          if (!startGrace && arenaZonesRef.current.length < zMax && nowMs - lastZoneSpawnRef.current > zGap) {
+            lastZoneSpawnRef.current = nowMs;
+            spawnArenaZone(nowMs);
+          }
+          const before = arenaZonesRef.current.length;
+          arenaZonesRef.current = arenaZonesRef.current.filter((z) => nowMs < z.expiresAt);
+          if (arenaZonesRef.current.length !== before) setArenaZones([...arenaZonesRef.current]);
+        }
+
+        // ---- 3. Blockade positions (spec section 5) ------------------------
+        if (blockadesEnabledRef.current) {
+          const sig = `${arenaShape}|${blockadeDensityRef.current}|${blockadeMovementRef.current}|${blockadeModeRef.current}|${blockadeDurationSec}|${blockadeSelectedRef.current.size}`;
+          if (blockadeBuiltForRef.current !== sig) {
+            blockadeBuiltForRef.current = sig;
+            arenaBlockadesRef.current = buildBlockadeLayout(nowMs);
+            blockadeHitCooldownRef.current.clear();
+            setArenaBlockades([...arenaBlockadesRef.current]);
+          }
+          let structureChanged = false;
+          for (const b of arenaBlockadesRef.current) {
+            if (b.spin) b.angle = (b.angle || 0) + b.spin * TICK_MS;
+            if (b.pathSpeed !== undefined && b.ax !== undefined) {
+              let t = (b.t || 0) + (b.dir || 1) * b.pathSpeed * TICK_MS;
+              if (t > 1) { t = 1; b.dir = -1; } else if (t < 0) { t = 0; b.dir = 1; }
+              b.t = t;
+              b.x = b.ax + (b.bx! - b.ax) * t;
+              b.y = b.ay! + (b.by! - b.ay!) * t;
+            }
+            if (b.kind === "laser_wall") {
+              // Pulsing ACTIVE/INACTIVE so the beam is dodgeable.
+              const cyclePos = ((nowMs - b.createdAt) % 3000) / 3000;
+              const nextActive = cyclePos > 0.35;
+              if (nextActive !== b.active) { b.active = nextActive; structureChanged = true; }
+            }
+            if (b.kind === "vanishing_block" && b.expiresAt && !b.fading && nowMs > b.expiresAt - 1200) {
+              b.fading = true; structureChanged = true;
+            }
+          }
+          const alive = arenaBlockadesRef.current.filter(
+            (b) => (b.expiresAt === undefined || nowMs < b.expiresAt) && (b.hp === undefined || b.hp > 0)
+          );
+          if (alive.length !== arenaBlockadesRef.current.length) { arenaBlockadesRef.current = alive; structureChanged = true; }
+          if (structureChanged) setArenaBlockades([...arenaBlockadesRef.current]);
+        } else if (arenaBlockadesRef.current.length > 0) {
+          arenaBlockadesRef.current = [];
+          blockadeBuiltForRef.current = "";
+          setArenaBlockades([]);
+        }
+
         for (let i = 0; i < n; i++) {
-          let nx = xArr[i] + vxArr[i] * MAX_MOVE_STEP;
-          let ny = yArr[i] + vyArr[i] * MAX_MOVE_STEP;
+          // Time Stop freezes movement; Web Shot slows the tethered bubble.
+          // Pickup statuses (Speed Boost / Slow / Stun) scale this bubble's step.
+          const pickupFactor = pickupsEnabledRef.current ? pickupSpeedFactor(idArr[i], nowMs) : 1;
+          // Zones and events layer on as multipliers; base values are never overwritten.
+          let zoneFactor = 1;
+          let icy = false;
+          if (zonesEnabledRef.current && arenaZonesRef.current.length > 0) {
+            for (const z of arenaZonesRef.current) {
+              const zdx = xArr[i] - z.x, zdy = yArr[i] - z.y;
+              if (zdx * zdx + zdy * zdy > z.r * z.r) continue;
+              if (z.kind === "speed_zone") zoneFactor *= 1.5;
+              else if (z.kind === "slow_zone") zoneFactor *= 0.5;
+              else if (z.kind === "poison_zone") zoneFactor *= 0.75;
+              else if (z.kind === "ice") icy = true;
+              else if (z.kind === "gravity") {
+                // Continuous pull toward the zone center (never a teleport).
+                const d = Math.sqrt(zdx * zdx + zdy * zdy) || 1;
+                vxArr[i] -= (zdx / d) * 0.12;
+                vyArr[i] -= (zdy / d) * 0.12;
+              } else if (z.kind === "wind") {
+                vxArr[i] += (z.fx || 0) * 0.1;
+                vyArr[i] += (z.fy || 0) * 0.1;
+              }
+            }
+          }
+          if (icy) zoneFactor *= 1.15; // slides further before the bounce settles
+          const step = frozen ? 0 : MAX_MOVE_STEP * webStepFactor(idArr[i]) * pickupFactor * zoneFactor * globalStepMultRef.current;
+          let nx = xArr[i] + vxArr[i] * step;
+          let ny = yArr[i] + vyArr[i] * step;
           let nvx = vxArr[i];
           let nvy = vyArr[i];
 
-          // Use shape-aware boundary checking
-          const constrained = constrainToArenaBoundary(nx, ny, rArr[i], dims);
+          // Use shape-aware boundary checking (Shrinking Arena adds padding)
+          const constrained = constrainToArenaBoundary(nx, ny, rArr[i] + arenaShrinkPadRef.current, dims);
           
           if (constrained.vx !== 0 || constrained.vy !== 0) {
             // Bounce occurred - apply constraint and reverse velocity
@@ -2918,6 +4635,90 @@ const ArenaPage: React.FC = () => {
             // Speed is preserved after bounce - no forced slowdown
           }
           // Otherwise use unconstrained position (only constrain when bouncing)
+
+          // ---- 8. Blockade collision (spec section 5) ----------------------
+          if (blockadesEnabledRef.current && arenaBlockadesRef.current.length > 0) {
+            const bid = idArr[i];
+            // Ghost Mode lets a bubble pass through solid blockades.
+            const ghost = pickupsEnabledRef.current && hasStatus(bid, "ghost", nowMs);
+            for (const b of arenaBlockadesRef.current) {
+              if (!overlapsBlockade(b, nx, ny, rArr[i])) continue;
+              const hitKey = `${bid}:${b.id}`;
+              const lastHit = blockadeHitCooldownRef.current.get(hitKey) ?? 0;
+              const canHit = nowMs - lastHit > BLOCKADE_CONTACT_COOLDOWN_MS;
+
+              // Non-solid fields: force / damage / teleport, never a bounce.
+              if (!b.solid) {
+                if (b.kind === "conveyor" || b.kind === "pusher") {
+                  nvx += (b.fx || 0) * 0.6;
+                  nvy += (b.fy || 0) * 0.6;
+                } else if (b.kind === "bouncy_pad") {
+                  const dx = nx - b.x, dy = ny - b.y;
+                  const d = Math.sqrt(dx * dx + dy * dy) || 1;
+                  nvx = (dx / d) * Math.abs(nvx || 1) * 1.8;
+                  nvy = (dy / d) * Math.abs(nvy || 1) * 1.8;
+                  if (pickupsEnabledRef.current) addStatus(bid, "speed_boost", 900, nowMs);
+                } else if (b.kind === "laser_wall") {
+                  if (b.active && canHit) {
+                    blockadeHitCooldownRef.current.set(hitKey, nowMs);
+                    const dmg = Math.round(BLOCKADE_LASER_DAMAGE * globalDamageMultRef.current);
+                    hArr[i] = Math.max(0, hArr[i] - dmg);
+                    spawnPickupFx(bid, `-${dmg}`, "#f97316");
+                  }
+                } else if (b.kind === "rotating_blade") {
+                  if (canHit) {
+                    blockadeHitCooldownRef.current.set(hitKey, nowMs);
+                    const dmg = Math.round(BLOCKADE_BLADE_DAMAGE * globalDamageMultRef.current);
+                    hArr[i] = Math.max(0, hArr[i] - dmg);
+                    spawnPickupFx(bid, `-${dmg}`, "#fb7185");
+                    const dx = nx - b.x, dy = ny - b.y;
+                    const d = Math.sqrt(dx * dx + dy * dy) || 1;
+                    nx = b.x + (dx / d) * (b.r + rArr[i] + 2);
+                    ny = b.y + (dy / d) * (b.r + rArr[i] + 2);
+                    nvx = (dx / d) * Math.abs(nvx || 1);
+                    nvy = (dy / d) * Math.abs(nvy || 1);
+                  }
+                } else if (b.kind === "teleport_gate" && b.linkId !== undefined) {
+                  const tpLast = teleportCooldownRef.current.get(bid) ?? 0;
+                  if (nowMs - tpLast > 1200) {
+                    const exit = arenaBlockadesRef.current.find((o) => o.id === b.linkId);
+                    if (exit) {
+                      teleportCooldownRef.current.set(bid, nowMs);
+                      const sp = Math.sqrt(nvx * nvx + nvy * nvy) || 1;
+                      nx = exit.x + (nvx / sp) * (exit.r + rArr[i] + 4);
+                      ny = exit.y + (nvy / sp) * (exit.r + rArr[i] + 4);
+                    }
+                  }
+                }
+                continue;
+              }
+
+              if (ghost) continue;
+
+              // Solid: eject to the surface and reflect along its normal.
+              const push = resolveBlockadePush(b, nx, ny, rArr[i]);
+              if (!push) continue;
+              nx = push.x;
+              ny = push.y;
+              const dot = nvx * push.nx + nvy * push.ny;
+              if (dot < 0) {
+                nvx -= 2 * dot * push.nx;
+                nvy -= 2 * dot * push.ny;
+              }
+              if (b.kind === "spike_block" && canHit) {
+                blockadeHitCooldownRef.current.set(hitKey, nowMs);
+                const dmg = Math.round(BLOCKADE_SPIKE_DAMAGE * globalDamageMultRef.current);
+                hArr[i] = Math.max(0, hArr[i] - dmg);
+                spawnPickupFx(bid, `-${dmg}`, "#ef4444");
+              } else if (b.kind === "breakable" && canHit) {
+                blockadeHitCooldownRef.current.set(hitKey, nowMs);
+                b.hp = (b.hp ?? 3) - 1;
+              } else if (b.kind === "invisible_wall" && canHit) {
+                blockadeHitCooldownRef.current.set(hitKey, nowMs);
+                b.active = true; // subtle discovery feedback
+              }
+            }
+          }
 
           xArr[i] = nx;
           yArr[i] = ny;
@@ -3044,8 +4845,14 @@ const ArenaPage: React.FC = () => {
 
                 // small outward push to reduce sticking
                 const d = Math.sqrt(Math.max(0.0001, distSq));
-                const nxPush = (dx / d) * 2;
-                const nyPush = (dy / d) * 2;
+                // Impact Boost pickup: bigger knockback on this collision, consumed once.
+                let pushMag = 2;
+                if (pickupsEnabledRef.current && impactBoostRef.current.size > 0) {
+                  if (impactBoostRef.current.has(idArr[i])) { pushMag = 10; impactBoostRef.current.delete(idArr[i]); }
+                  else if (impactBoostRef.current.has(idArr[j])) { pushMag = 10; impactBoostRef.current.delete(idArr[j]); }
+                }
+                const nxPush = (dx / d) * pushMag;
+                const nyPush = (dy / d) * pushMag;
                 xArr[i] += nxPush;
                 yArr[i] += nyPush;
                 xArr[j] -= nxPush;
@@ -3331,19 +5138,229 @@ const ArenaPage: React.FC = () => {
           }
         }
 
+        // ===== Arena Pickups (spec section 4) — spawn, collect, status ticks =====
+        // Spawn/magnet/status-ticks are gated by the "Pickups" toggle, but collect+expire
+        // always runs so event-spawned pickups (health_rain/item_chaos) still work even
+        // when the separate "Pickups" system is off.
+        if (pickupsEnabledRef.current) {
+          // 1) SPAWN on interval, respecting max count + valid placement.
+          const freqMs = pickupFrequencyRef.current === "low" ? 6000 : pickupFrequencyRef.current === "high" ? 2500 : 4000;
+          if (nowMs - lastArenaPickupSpawnRef.current > freqMs && arenaPickupsRef.current.length < pickupMaxRef.current && n > 0) {
+            lastArenaPickupSpawnRef.current = nowMs;
+            let pool: ArenaPickupKind[];
+            if (pickupModeRef.current === "custom") {
+              // Custom: only the kinds the user explicitly enabled.
+              pool = ARENA_PICKUP_KINDS.filter((k) => pickupSelectedRef.current.has(k));
+            } else {
+              // Auto: random good/bad pool weighted by ratio (original behavior).
+              const roll = Math.random();
+              if (pickupRatioRef.current === "good") pool = roll < 0.8 ? GOOD_PICKUP_KINDS : BAD_PICKUP_KINDS;
+              else if (pickupRatioRef.current === "bad") pool = roll < 0.8 ? BAD_PICKUP_KINDS : GOOD_PICKUP_KINDS;
+              else pool = roll < 0.5 ? GOOD_PICKUP_KINDS : BAD_PICKUP_KINDS;
+            }
+            if (pool.length === 0) { /* nothing enabled — skip this spawn */ }
+            else {
+            const kind = pool[Math.floor(Math.random() * pool.length)];
+            let placed: { x: number; y: number } | null = null;
+            for (let attempt = 0; attempt < 12; attempt++) {
+              const pos = getRandomPositionInShape(ARENA_PICKUP_RADIUS, dims);
+              let ok = true;
+              for (let b = 0; b < n; b++) {
+                const ddx = xArr[b] - pos.x, ddy = yArr[b] - pos.y;
+                const rr = rArr[b] + ARENA_PICKUP_RADIUS;
+                if (ddx * ddx + ddy * ddy < rr * rr) { ok = false; break; }
+              }
+              if (ok) {
+                for (const p of arenaPickupsRef.current) {
+                  const ddx = p.x - pos.x, ddy = p.y - pos.y;
+                  const rr = ARENA_PICKUP_RADIUS * 2;
+                  if (ddx * ddx + ddy * ddy < rr * rr) { ok = false; break; }
+                }
+              }
+              // Never inside a solid blockade (spec section 10).
+              if (ok && blockadesEnabledRef.current) {
+                for (const b of arenaBlockadesRef.current) {
+                  if (b.solid && overlapsBlockade(b, pos.x, pos.y, ARENA_PICKUP_RADIUS)) { ok = false; break; }
+                }
+              }
+              if (ok) { placed = pos; break; }
+            }
+            if (placed) {
+              arenaPickupsRef.current.push({ id: nextProjectileId++, x: placed.x, y: placed.y, kind, createdAt: nowMs, expiresAt: nowMs + 9000 });
+              setArenaPickups([...arenaPickupsRef.current]);
+            }
+            }
+          }
+
+          // 2) MAGNET: pull idle pickups toward bubbles with an active magnet.
+          if (arenaPickupsRef.current.length > 0) {
+            for (let b = 0; b < n; b++) {
+              if (hArr[b] <= 0 || !hasStatus(idArr[b], "magnet", nowMs)) continue;
+              for (const p of arenaPickupsRef.current) {
+                const ddx = xArr[b] - p.x, ddy = yArr[b] - p.y;
+                const d2 = ddx * ddx + ddy * ddy;
+                if (d2 < 200 * 200 && d2 > 1) {
+                  const d = Math.sqrt(d2);
+                  p.x += (ddx / d) * 3;
+                  p.y += (ddy / d) * 3;
+                }
+              }
+            }
+          }
+        }
+
+        // 3) COLLECT + EXPIRE — always runs (even with "Pickups" off) so event-spawned
+        // pickups (health_rain/item_chaos) remain collectible/visible.
+        if (arenaPickupsRef.current.length > 0) {
+          const remove: number[] = [];
+          for (const p of arenaPickupsRef.current) {
+            if (p.vy) p.y += p.vy; // falling rain pickups drop top-to-bottom
+            if (nowMs > p.expiresAt || (p.vy != null && p.y - ARENA_PICKUP_RADIUS > dims.height)) { remove.push(p.id); continue; }
+            for (let b = 0; b < n; b++) {
+              if (hArr[b] <= 0) continue;
+              const ddx = xArr[b] - p.x, ddy = yArr[b] - p.y;
+              const hit = rArr[b] + ARENA_PICKUP_RADIUS;
+              if (ddx * ddx + ddy * ddy < hit * hit) {
+                const bid = idArr[b];
+                if (nowMs < (lockedUntilRef.current.get(bid) ?? 0)) continue; // Locked
+                applyPickupEffect(p.kind, bid, b, nowMs);
+                remove.push(p.id);
+                break;
+              }
+            }
+          }
+          if (remove.length > 0) {
+            arenaPickupsRef.current = arenaPickupsRef.current.filter((p) => !remove.includes(p.id));
+            setArenaPickups([...arenaPickupsRef.current]);
+          }
+        }
+
+        if (pickupsEnabledRef.current) {
+          // 4) STATUS TICKS (HP over time) + expiry cleanup (shrink restore).
+          const rTgtArr = rTargetRef.current;
+          if (bubbleStatusesRef.current.size > 0) {
+            for (let b = 0; b < n; b++) {
+              const list = bubbleStatusesRef.current.get(idArr[b]);
+              if (!list) continue;
+              for (const s of list) {
+                if (nowMs >= s.expiresAt) continue;
+                if ((s.type === "poison" || s.type === "bleed" || s.type === "regeneration") && nowMs - (s.lastTick ?? s.startedAt) >= 1000) {
+                  s.lastTick = nowMs;
+                  if (s.type === "poison") hArr[b] = Math.max(0, hArr[b] - 5);
+                  else if (s.type === "bleed") hArr[b] = Math.max(0, hArr[b] - 2);
+                  else hArr[b] = hArr[b] + 3; // regeneration: no upper cap
+                }
+              }
+            }
+            for (const [bid, list] of bubbleStatusesRef.current) {
+              let bIdx = -1;
+              for (let b = 0; b < n; b++) { if (idArr[b] === bid) { bIdx = b; break; } }
+              const kept: ArenaStatus[] = [];
+              for (const s of list) {
+                if (nowMs < s.expiresAt) { kept.push(s); continue; }
+                if (s.type === "shrink" && bIdx >= 0 && s.origR !== undefined) {
+                  rArr[bIdx] = s.origR;
+                  if (rTgtArr && s.origTgt !== undefined) rTgtArr[bIdx] = s.origTgt;
+                }
+              }
+              if (kept.length > 0) bubbleStatusesRef.current.set(bid, kept);
+              else bubbleStatusesRef.current.delete(bid);
+            }
+          }
+        }
+
+        // Prune expired Locked entries and old floating labels — always runs so
+        // labels from event-spawned pickups (collected while "Pickups" is off) clean up too.
+        if (lockedUntilRef.current.size > 0) {
+          for (const [bid, until] of lockedUntilRef.current) if (nowMs >= until) lockedUntilRef.current.delete(bid);
+        }
+        if (pickupFxRef.current.length > 0) {
+          const before = pickupFxRef.current.length;
+          pickupFxRef.current = pickupFxRef.current.filter((fx) => nowMs - fx.createdAt < 900);
+          if (pickupFxRef.current.length !== before) setPickupFx([...pickupFxRef.current]);
+        }
+
+        // ---- 11. Zone effects (spec section 6) — HP ticks + fade tracking ---
+        if (zonesEnabledRef.current && arenaZonesRef.current.length > 0) {
+          const faded = fadedBubblesRef.current;
+          const wasFaded = faded.size;
+          faded.clear();
+          for (let i = 0; i < n; i++) {
+            if (hArr[i] <= 0) continue;
+            const bid = idArr[i];
+            let hpDelta = 0;
+            for (const z of arenaZonesRef.current) {
+              const dx = xArr[i] - z.x, dy = yArr[i] - z.y;
+              if (dx * dx + dy * dy > z.r * z.r) continue;
+              if (z.kind === "fire") hpDelta -= 5;
+              else if (z.kind === "poison_zone") hpDelta -= 2;
+              else if (z.kind === "heal") hpDelta += 3;
+              else if (z.kind === "invisibility") faded.add(bid);
+            }
+            // Tick once per second, never every frame.
+            if (hpDelta !== 0) {
+              const last = zoneTickRef.current.get(bid) ?? 0;
+              if (nowMs - last >= 1000) {
+                zoneTickRef.current.set(bid, nowMs);
+                hArr[i] = Math.max(0, hArr[i] + hpDelta); // no upper cap on heal zones
+              }
+            }
+          }
+          if (wasFaded !== faded.size) setArenaZones([...arenaZonesRef.current]);
+        } else if (fadedBubblesRef.current.size > 0) {
+          fadedBubblesRef.current.clear();
+        }
+
+        // ---- Meteor hazards (spec section 7) — damage + knockback on contact -
+        if (eventsEnabledRef.current && arenaMeteorsRef.current.length > 0) {
+          const spent: number[] = [];
+          for (const m of arenaMeteorsRef.current) {
+            for (let i = 0; i < n; i++) {
+              if (hArr[i] <= 0) continue;
+              const dx = xArr[i] - m.x, dy = yArr[i] - m.y;
+              const need = m.r + rArr[i];
+              if (dx * dx + dy * dy >= need * need) continue;
+              const meteorDmg = Math.round(12 * globalDamageMultRef.current);
+              hArr[i] = Math.max(0, hArr[i] - meteorDmg);
+              spawnPickupFx(idArr[i], `-${meteorDmg}`, "#f97316");
+              const d = Math.sqrt(dx * dx + dy * dy) || 1;
+              vxArr[i] += (dx / d) * 2;
+              vyArr[i] += (dy / d) * 2;
+              spent.push(m.id);
+              break;
+            }
+          }
+          if (spent.length > 0) {
+            arenaMeteorsRef.current = arenaMeteorsRef.current.filter((m) => !spent.includes(m.id));
+            setArenaMeteors([...arenaMeteorsRef.current]);
+          }
+        }
+
         // Player Powers Feature (Boss Arena only)
         // Only apply player powers if: enabled AND (no timer OR timer has expired)
         const playerPowersActive = playerPowersEnabledRef.current && (playerPowersAutoEnableTime === 0 || playerPowersAutoEnabledRef.current);
-        if (arenaType === ARENA_TYPES.BOSS && playerPowersActive) {
+        const normalPowersActive = normalPowersEnabledRef.current;
+        if ((arenaType === ARENA_TYPES.BOSS && playerPowersActive) || (arenaType === ARENA_TYPES.NORMAL && normalPowersActive)) {
           // Spawn power pickups in pickup mode
+          if (arenaType === ARENA_TYPES.NORMAL && normalPowersEnabledRef.current && !preAssignedAppliedRef.current && n > 0) {
+            const enabledPowers = (Object.keys(selectedNormalPowers) as (keyof typeof SUPER_BUBBLE_TYPES)[]).filter((key) => selectedNormalPowers[key]);
+            if (enabledPowers.length > 0) {
+              for (let i = 0; i < n; i++) {
+                bubblePowersRef.current.set(idArr[i], { type: enabledPowers[i % enabledPowers.length], expiresAt: Infinity, lastShot: nowMs - 1000 });
+              }
+              setBubblePowers(new Map(bubblePowersRef.current));
+              preAssignedAppliedRef.current = true;
+            }
+          }
+
           if (playerPowerMode === "pickup") {
             const PICKUP_SPAWN_INTERVAL = 7000; // Spawn every 7 seconds
             if (nowMs - lastPickupSpawnRef.current > PICKUP_SPAWN_INTERVAL) {
               lastPickupSpawnRef.current = nowMs;
               
               // Get list of enabled powers
-              const enabledPowers = (Object.keys(SUPER_BUBBLE_TYPES) as (keyof typeof SUPER_BUBBLE_TYPES)[]).filter(
-                (k) => selectedPlayerPowers[k]
+              const enabledPowers = AVAILABLE_POWER_KEYS.filter(
+                (k) => arenaType === ARENA_TYPES.NORMAL ? selectedNormalPowers[k] : selectedPlayerPowers[k]
               );
               
               if (enabledPowers.length > 0) {
@@ -3458,15 +5475,37 @@ const ArenaPage: React.FC = () => {
             }
             
             if (bubbleIdx >= 0) {
-              // Shoot projectile every 3 seconds
-              if (nowMs - power.lastShot >= 3000) {
+              // Shoot every 3s in auto mode, or once per manual shoot request.
+              const autoFire = playerBubblesFiringModeRef.current !== "manual";
+              if ((autoFire && nowMs - power.lastShot >= 3000) || (!autoFire && manualShootRequestRef.current)) {
                 power.lastShot = nowMs;
-                
-                // Find superbubble to aim at
-                const sb = superBubbleRef.current;
-                if (sb) {
-                  const dx = sb.x - xArr[bubbleIdx];
-                  const dy = sb.y - yArr[bubbleIdx];
+
+                // SELF/ARENA/TARGET powers apply an effect instead of firing a projectile.
+                if (isSpecialPower(power.type)) {
+                  applySpecialPower(power.type, bubbleId, bubbleIdx);
+                  playerProjectilesFired = true;
+                  updatedPowers.set(bubbleId, power);
+                  continue;
+                }
+
+                // Aim target: superbubble in Boss arena, nearest other bubble in Normal arena.
+                let tx = 0, ty = 0, haveTarget = false;
+                if (arenaType === ARENA_TYPES.NORMAL) {
+                  let best = -1, bestD = Infinity;
+                  for (let j = 0; j < n; j++) {
+                    if (idArr[j] === bubbleId || hArr[j] <= 0) continue;
+                    const ddx = xArr[j] - xArr[bubbleIdx], ddy = yArr[j] - yArr[bubbleIdx];
+                    const dd = ddx * ddx + ddy * ddy;
+                    if (dd < bestD) { bestD = dd; best = j; }
+                  }
+                  if (best >= 0) { tx = xArr[best]; ty = yArr[best]; haveTarget = true; }
+                } else {
+                  const sb = superBubbleRef.current;
+                  if (sb) { tx = sb.x; ty = sb.y; haveTarget = true; }
+                }
+                if (haveTarget) {
+                  const dx = tx - xArr[bubbleIdx];
+                  const dy = ty - yArr[bubbleIdx];
                   const dist = Math.sqrt(dx * dx + dy * dy);
                   if (dist > 0) {
                     const speed = playerBubblesProjectileSpeedRef.current || 4;
@@ -3516,7 +5555,9 @@ const ArenaPage: React.FC = () => {
           if (playerProjectilesFired) {
             setProjectiles([...projectilesRef.current]);
           }
-          
+          // Consume a manual shoot request after this firing pass.
+          if (playerBubblesFiringModeRef.current === "manual") manualShootRequestRef.current = false;
+
           if (updatedPowers.size !== bubblePowersRef.current.size) {
             bubblePowersRef.current = updatedPowers;
             setBubblePowers(new Map(updatedPowers));
@@ -3637,10 +5678,19 @@ const ArenaPage: React.FC = () => {
                 // Add staggered delay for 1v1 mode (750ms offset) to prevent simultaneous nullification
                 const shootDelay = brawlMode === "1v1" ? (bubbleIdx % 2) * 750 : 0;
                 
-                // Shoot projectile every 3 seconds (plus stagger delay)
-                if (nowMs - power.lastShot >= 3000 + shootDelay) {
+                // Shoot every 3s in auto mode (plus stagger), or once per manual shoot request.
+                const autoFireBrawl = brawlBubblesFiringModeRef.current !== "manual";
+                if ((autoFireBrawl && nowMs - power.lastShot >= 3000 + shootDelay) || (!autoFireBrawl && manualShootRequestRef.current)) {
                   power.lastShot = nowMs;
-                  
+
+                  // SELF/ARENA/TARGET powers apply an effect instead of firing a projectile.
+                  if (isSpecialPower(power.type)) {
+                    applySpecialPower(power.type, bubbleId, bubbleIdx);
+                    projectilesFired = true;
+                    updatedPowers.set(bubbleId, power);
+                    continue;
+                  }
+
                   // Find a random enemy bubble to aim at (any other bubble)
                   const enemyIndices: number[] = [];
                   const shooterTeam = brawlTeamsRef.current.get(bubbleId);
@@ -3715,6 +5765,8 @@ const ArenaPage: React.FC = () => {
               setBubblePowers(new Map(updatedPowers));
             }
           }
+          // Consume a manual shoot request after the brawl firing pass.
+          if (brawlBubblesFiringModeRef.current === "manual") manualShootRequestRef.current = false;
         }
 
         // dying handling
@@ -3824,6 +5876,7 @@ const ArenaPage: React.FC = () => {
         if (arenaType === ARENA_TYPES.NORMAL) {
           if (countRef.current <= 1) {
             setIsRunning(false);
+            gameEndedRef.current = true;
             if (countRef.current === 1) {
               const i = 0;
               const winnerBubbleData: BubbleData = {
@@ -3861,6 +5914,7 @@ const ArenaPage: React.FC = () => {
             // 1v1: Last bubble standing wins
             if (countRef.current <= 1) {
               setIsRunning(false);
+              gameEndedRef.current = true;
               if (countRef.current === 1) {
                 const i = 0;
                 const winnerBubbleData: BubbleData = {
@@ -3916,6 +5970,7 @@ const ArenaPage: React.FC = () => {
             
             if (!soloAlive || !manyAlive) {
               setIsRunning(false);
+              gameEndedRef.current = true;
               
               if (!soloAlive && !manyAlive) {
                 // Both teams dead - draw
@@ -4027,8 +6082,9 @@ const ArenaPage: React.FC = () => {
           if (superBubbleRef.current) {
             // move superbubble using the same max step multiplier so speed is consistent
             let sb = superBubbleRef.current;
-            let sbNewX = sb.x + sb.vx * MAX_MOVE_STEP;
-            let sbNewY = sb.y + sb.vy * MAX_MOVE_STEP;
+            const sbStep = isTimeStopped() ? 0 : MAX_MOVE_STEP;
+            let sbNewX = sb.x + sb.vx * sbStep;
+            let sbNewY = sb.y + sb.vy * sbStep;
             
             // Use shape-aware boundary checking for superbubble
             const constrained = constrainToArenaBoundary(sbNewX, sbNewY, sb.radius, dims);
@@ -4120,7 +6176,7 @@ const ArenaPage: React.FC = () => {
                   
                   // Apply configured collision damage to normal bubble ONLY if it doesn't have blade
                   if (!normalBubbleHasBlade) {
-                    hArr[i] = Math.max(0, hArr[i] - bossCollisionDamage);
+                    hArr[i] = Math.max(0, hArr[i] - bossCollisionDamage * globalDamageMultRef.current);
                   }
                   sbCollisionCooldownRef.current[idArr[i]] = nowMs;
                   try {
@@ -4136,7 +6192,7 @@ const ArenaPage: React.FC = () => {
             }
             // Apply collision damage to superbubble (same damage value)
             if (hits > 0) {
-              superBubbleRef.current.health = Math.max(0, superBubbleRef.current.health - (bossCollisionDamage * hits));
+              superBubbleRef.current.health = Math.max(0, superBubbleRef.current.health - (bossCollisionDamage * hits * globalDamageMultRef.current));
             }
           }
 
@@ -4150,6 +6206,7 @@ const ArenaPage: React.FC = () => {
           // Check for draw - both superbubble and all normals are dead
           if (superBubbleRef.current && superBubbleRef.current.health <= 0 && aliveNormals.length === 0) {
             setIsRunning(false);
+            gameEndedRef.current = true;
             setUiBubblesSnapshot([]);
             setProjectiles([]);
             projectilesRef.current = [];
@@ -4174,6 +6231,7 @@ const ArenaPage: React.FC = () => {
           
           if (superBubbleRef.current && superBubbleRef.current.health <= 0) {
             setIsRunning(false);
+            gameEndedRef.current = true;
             const snapNormals: BubbleData[] = [];
             for (const idx of aliveNormals) {
               snapNormals.push({
@@ -4188,6 +6246,8 @@ const ArenaPage: React.FC = () => {
               });
             }
             setUiBubblesSnapshot(snapNormals);
+            setEliminatedSide("boss");
+            setSuperBubbleSnapshot((previous) => previous ? { ...previous, health: 0 } : null);
             setProjectiles((p) => p);
             // Team wins - record "team" as winner
             setWinner({
@@ -4221,6 +6281,8 @@ const ArenaPage: React.FC = () => {
             };
             
             setIsRunning(false);
+            gameEndedRef.current = true;
+            setEliminatedSide("heroes");
             setUiBubblesSnapshot([]);
             setProjectiles([]);
             projectilesRef.current = [];
@@ -4249,6 +6311,8 @@ const ArenaPage: React.FC = () => {
       const xArrRender = xRef.current!;
       const yArrRender = yRef.current!;
       const hArrRender = healthRef.current!;
+      const vxArrRender = vxRef.current!;
+      const vyArrRender = vyRef.current!;
       const imgIdxArrRender = imgIndexRef.current!;
       const idArrRender = idListRef.current!;
 
@@ -4267,7 +6331,20 @@ const ArenaPage: React.FC = () => {
         x = clamp(x, radius, dims.width - radius);
         y = clamp(y, radius, dims.height - radius);
 
+        const avatarIdx = avatarIndexRef.current?.[i] ?? -1;
+        drawBubbleGlowAndTrail(ctx, x, y, radius, vxArrRender[i], vyArrRender[i], strokeColor);
         let drawnImage = false;
+        if (avatarIdx >= 0) {
+          drawAvatarOnCanvas(ctx, x, y, radius, avatarIdx);
+          if (radius >= 8) {
+            ctx.beginPath();
+            ctx.arc(x, y, radius + 2, -Math.PI / 2, -Math.PI / 2 + (Math.PI * 2 * Math.min(1, hp / 100)));
+            ctx.strokeStyle = strokeColor;
+            ctx.lineWidth = healthBarWidth;
+            ctx.stroke();
+          }
+          continue;
+        }
         if (radius >= IMAGE_SHOW_RADIUS && imgIdx >= 0) {
           const src = imgSrcsRef.current[imgIdx];
           const bucket = pickBucketForRadius(radius);
@@ -4310,7 +6387,7 @@ const ArenaPage: React.FC = () => {
         if (drawnImage) {
           if (radius >= 8) {
             ctx.beginPath();
-            ctx.arc(x, y, radius + 2, -Math.PI / 2, -Math.PI / 2 + (Math.PI * 2 * (hp / 100)));
+            ctx.arc(x, y, radius + 2, -Math.PI / 2, -Math.PI / 2 + (Math.PI * 2 * Math.min(1, hp / 100)));
             ctx.strokeStyle = strokeColor;
             ctx.lineWidth = healthBarWidth;
             ctx.stroke();
@@ -4346,7 +6423,7 @@ const ArenaPage: React.FC = () => {
         ctx.fill();
         ctx.globalAlpha = 1;
         ctx.beginPath();
-        ctx.arc(x, y, Math.max(1, radius) + 2, -Math.PI / 2, -Math.PI / 2 + (Math.PI * 2 * (hp / 100)));
+        ctx.arc(x, y, Math.max(1, radius) + 2, -Math.PI / 2, -Math.PI / 2 + (Math.PI * 2 * Math.min(1, hp / 100)));
         ctx.strokeStyle = strokeColor;
         ctx.lineWidth = healthBarWidth * 0.5;
         ctx.stroke();
@@ -4392,7 +6469,11 @@ const ArenaPage: React.FC = () => {
       if (sbToRender) {
         const sb = sbToRender;
         let drawn = false;
-        if (sb.radius >= IMAGE_SHOW_RADIUS && sb.imgSrc) {
+        if (sb.avatar != null) {
+          drawAvatarOnCanvas(ctx, sb.x, sb.y, sb.radius, sb.avatar);
+          drawn = true;
+        }
+        if (!drawn && sb.radius >= IMAGE_SHOW_RADIUS && sb.imgSrc) {
           const src = sb.imgSrc;
           const bucket = pickBucketForRadius(sb.radius);
           const key = maskedKey(src, bucket);
@@ -4448,6 +6529,9 @@ const ArenaPage: React.FC = () => {
           drawBladeOnCanvas(ctx, sb.x, sb.y, sb.radius, bladeRotationRef.current * Math.PI / 180, true);
         }
       }
+
+      // Draw special-power overlays: shield domes, web tethers, time-stop tint.
+      drawPowerFx(ctx);
     }; // end loop
 
     rafId = requestAnimationFrame(loop);
@@ -4463,7 +6547,7 @@ const ArenaPage: React.FC = () => {
   // ---------- projectiles handling ----------
 
   useEffect(() => {
-    if (!isRunning || (arenaType !== ARENA_TYPES.BOSS && arenaType !== ARENA_TYPES.BRAWL)) return;
+    if (!isRunning || (arenaType !== ARENA_TYPES.NORMAL && arenaType !== ARENA_TYPES.BOSS && arenaType !== ARENA_TYPES.BRAWL)) return;
     const interval = window.setInterval(() => {
       const arena = getArenaDimensions();
       const nextProjectiles: Projectile[] = [];
@@ -4545,7 +6629,13 @@ const ArenaPage: React.FC = () => {
           projectilesToKeep[idx] = false;
           continue;
         }
-        
+
+        // Time Stop freezes projectiles in place (no advance, no collision).
+        if (nowMs < timeStopUntilRef.current) {
+          nextProjectiles.push({ ...p });
+          continue;
+        }
+
         const nx = p.x + p.vx;
         const ny = p.y + p.vy;
         
@@ -4573,8 +6663,10 @@ const ArenaPage: React.FC = () => {
             const dx = xArr[i] - nx;
             const dy = yArr[i] - ny;
             if (dx * dx + dy * dy < rArr[i] * rArr[i]) {
+              // Sand Shield absorbs the projectile without taking damage.
+              if (hasActiveShield(idArr[i])) { hit = true; break; }
               // Use brawl arena power damage for this power type
-              const damage = brawlPowerDamages[p.type] || 5;
+              const damage = (brawlPowerDamages[p.type] || 5) * globalDamageMultRef.current;
               hArr[i] = Math.max(0, hArr[i] - damage);
               
               // Track last damager
@@ -4599,14 +6691,27 @@ const ArenaPage: React.FC = () => {
           }
         }
         // Projectile from normal bubble (only damages superbubble)
-        else if (p.fromBubbleId !== undefined && playerPowersEnabled) {
+        else if (p.fromBubbleId !== undefined && (playerPowersEnabled || normalPowersEnabled || normalPowersEnabledRef.current || bubblePowersRef.current.size > 0)) {
+          if (arenaType === ARENA_TYPES.NORMAL) {
+            for (let i = 0; i < n; i++) {
+              if (idArr[i] === p.fromBubbleId) continue;
+              const dx = xArr[i] - nx;
+              const dy = yArr[i] - ny;
+              if (dx * dx + dy * dy < rArr[i] * rArr[i]) {
+                if (hasActiveShield(idArr[i])) { hit = true; break; }
+                hArr[i] = Math.max(0, hArr[i] - (normalPowerDamages[p.type] || 5) * globalDamageMultRef.current);
+                hit = true;
+                break;
+              }
+            }
+          } else {
           const sb = superBubbleRef.current;
           if (sb) {
             const dx = sb.x - nx;
             const dy = sb.y - ny;
             if (dx * dx + dy * dy < sb.radius * sb.radius) {
               // Use boss arena normal bubble power damage for this power type
-              const damage = bossNormalPowerDamages[p.type] || 5;
+              const damage = (bossNormalPowerDamages[p.type] || 5) * globalDamageMultRef.current;
               sb.health = Math.max(0, sb.health - damage);
               superBubbleRef.current = { ...sb };
               updateUiSnapshotFromArrays();
@@ -4619,6 +6724,7 @@ const ArenaPage: React.FC = () => {
               }, 300);
             }
           }
+          }
         }
         // Projectile from superbubble (damages normal bubbles)
         else if (p.fromSuperbubble === true || p.fromBubbleId === undefined) {
@@ -4626,8 +6732,10 @@ const ArenaPage: React.FC = () => {
             const dx = xArr[i] - nx;
             const dy = yArr[i] - ny;
             if (dx * dx + dy * dy < rArr[i] * rArr[i]) {
+              // Sand Shield absorbs the superbubble projectile.
+              if (hasActiveShield(idArr[i])) { hit = true; break; }
               // Use boss arena superbubble power damage for this power type
-              const damage = bossSuperPowerDamages[p.type] || 5;
+              const damage = (bossSuperPowerDamages[p.type] || 5) * globalDamageMultRef.current;
               hArr[i] = Math.max(0, hArr[i] - damage);
               try {
                 const rawAttacker = superBubbleRef.current?.imgSrc ?? "superbubble";
@@ -4791,6 +6899,8 @@ const ArenaPage: React.FC = () => {
 
   const resetArenaKeepType = () => {
     setIsRunning(false);
+    gameEndedRef.current = false;
+    setEliminatedSide(null);
     setWinner(null);
     setWinnersList(null);
     setWinnersImages(null);
@@ -4824,6 +6934,11 @@ const ArenaPage: React.FC = () => {
     setHitEffects([]);
     setBladeSparkEffects([]);
     setActiveCount(0);
+    // Clear special-power effects so they never leak across games.
+    shieldsRef.current.clear();
+    webbedRef.current.clear();
+    timeStopUntilRef.current = 0;
+    manualShootRequestRef.current = false;
 
     maskedBitmapCacheRef.current.forEach((bmp) => {
       try {
@@ -4848,8 +6963,10 @@ const ArenaPage: React.FC = () => {
     rTargetRef.current = new Float32Array(cap);
     healthRef.current = new Float32Array(cap);
     imgIndexRef.current = new Int32Array(cap);
+    avatarIndexRef.current = new Int32Array(cap);
     for (let i = 0; i < cap; i++) {
       imgIndexRef.current[i] = -1;
+      avatarIndexRef.current[i] = -1;
       rRef.current[i] = INITIAL_RADIUS;
       rTargetRef.current[i] = INITIAL_RADIUS;
     }
@@ -4870,6 +6987,33 @@ const ArenaPage: React.FC = () => {
       bubblePowersRef.current = new Map();
       preAssignedAppliedRef.current = false;
       lastPickupSpawnRef.current = 0;
+      // Clear arena pickups + all per-bubble statuses (spec section 13 cleanup).
+      setArenaPickups([]);
+      arenaPickupsRef.current = [];
+      lastArenaPickupSpawnRef.current = 0;
+      bubbleStatusesRef.current = new Map();
+      arenaShieldRef.current = new Map();
+      secondChanceRef.current = new Set();
+      impactBoostRef.current = new Set();
+      lockedUntilRef.current = new Map();
+      setPickupFx([]);
+      pickupFxRef.current = [];
+      // Clear blockades, zones and events (spec section 13 cleanup).
+      setArenaBlockades([]);
+      arenaBlockadesRef.current = [];
+      blockadeBuiltForRef.current = "";
+      blockadeHitCooldownRef.current.clear();
+      teleportCooldownRef.current.clear();
+      setArenaZones([]);
+      arenaZonesRef.current = [];
+      lastZoneSpawnRef.current = 0;
+      zoneTickRef.current.clear();
+      fadedBubblesRef.current.clear();
+      setActiveEvent(null);
+      activeEventRef.current = null;
+      lastEventAtRef.current = 0;
+      eventTickRef.current = 0;
+      clearEventGlobals();
       // Reset blade assignments
       setBladeAssignments(new Set());
       bladeRotationRef.current = 0;
@@ -4886,24 +7030,140 @@ const ArenaPage: React.FC = () => {
 
   // ---------- Superpower helpers ----------
 
+  // SELF / ARENA / TARGET powers that must NOT behave like a travelling projectile.
+  const SPECIAL_POWER_KEYS = new Set<string>(["sand_shield", "time_stop_burst", "web_shot"]);
+  const isSpecialPower = (k: string | number) => SPECIAL_POWER_KEYS.has(String(k));
+
+  // Apply a special power's effect. Returns true when handled so the caller
+  // skips normal projectile spawning for that shot.
+  const applySpecialPower = (
+    powerKey: keyof typeof SUPER_BUBBLE_TYPES,
+    shooterId: number,
+    shooterIdx: number
+  ): boolean => {
+    const now = Date.now();
+    if (powerKey === "sand_shield") {
+      // SELF SHIELD: absorbs incoming damage for a few seconds.
+      shieldsRef.current.set(shooterId, { expiresAt: now + 3500 });
+      return true;
+    }
+    if (powerKey === "time_stop_burst") {
+      // ARENA: freeze all movement briefly (rendering continues).
+      timeStopUntilRef.current = now + 1500;
+      return true;
+    }
+    if (powerKey === "web_shot") {
+      // TARGET tether: slow the nearest enemy and draw a web line to it.
+      const xArr = xRef.current, yArr = yRef.current, hArr = healthRef.current, idArr = idListRef.current;
+      const n = countRef.current;
+      if (!xArr || !yArr || !hArr || !idArr) return true;
+      const shooterTeam = brawlTeamsRef.current.get(shooterId);
+      let best = -1, bestD = Infinity;
+      for (let j = 0; j < n; j++) {
+        if (idArr[j] === shooterId || hArr[j] <= 0) continue;
+        if (arenaType === ARENA_TYPES.BRAWL && brawlMode === "1vMany" && shooterTeam !== undefined) {
+          if (brawlTeamsRef.current.get(idArr[j]) === shooterTeam) continue;
+        }
+        const dx = xArr[j] - xArr[shooterIdx], dy = yArr[j] - yArr[shooterIdx];
+        const d = dx * dx + dy * dy;
+        if (d < bestD) { bestD = d; best = j; }
+      }
+      if (best >= 0) {
+        webbedRef.current.set(idArr[best], { until: now + 2500, factor: 0.35, fromX: xArr[shooterIdx], fromY: yArr[shooterIdx] });
+      }
+      return true;
+    }
+    return false;
+  };
+
+  // Returns true while a bubble's movement should be frozen by Time Stop.
+  const isTimeStopped = () => Date.now() < timeStopUntilRef.current;
+  // Movement step multiplier for a bubble id (Web Shot slow); prunes expired webs.
+  const webStepFactor = (bubbleId: number): number => {
+    const w = webbedRef.current.get(bubbleId);
+    if (!w) return 1;
+    if (Date.now() >= w.until) { webbedRef.current.delete(bubbleId); return 1; }
+    return w.factor;
+  };
+  // True if the bubble currently has an active damage-absorbing shield.
+  const hasActiveShield = (bubbleId: number): boolean => {
+    const s = shieldsRef.current.get(bubbleId);
+    if (!s) return false;
+    if (Date.now() >= s.expiresAt) { shieldsRef.current.delete(bubbleId); return false; }
+    return true;
+  };
+
+  // Draw shield domes, web tethers and the time-stop tint on top of bubbles.
+  const drawPowerFx = (ctx: CanvasRenderingContext2D) => {
+    const now = Date.now();
+    const xArr = xRef.current, yArr = yRef.current, rArr = rRef.current, hArr = healthRef.current, idArr = idListRef.current;
+    if (!xArr || !yArr || !rArr || !idArr) return;
+    // Sand Shield domes.
+    for (const [id, s] of shieldsRef.current) {
+      if (now >= s.expiresAt) { shieldsRef.current.delete(id); continue; }
+      const i = idArr.indexOf(id);
+      if (i < 0 || (hArr && hArr[i] <= 0)) continue;
+      const r = rArr[i] + 9;
+      const pulse = 0.5 + 0.5 * Math.sin(now / 110);
+      ctx.save();
+      ctx.strokeStyle = `rgba(224,190,110,${0.55 + 0.35 * pulse})`;
+      ctx.lineWidth = 3;
+      ctx.beginPath(); ctx.arc(xArr[i], yArr[i], r, 0, Math.PI * 2); ctx.stroke();
+      ctx.strokeStyle = `rgba(255,226,150,${0.22 * pulse})`;
+      ctx.lineWidth = 9;
+      ctx.beginPath(); ctx.arc(xArr[i], yArr[i], r, 0, Math.PI * 2); ctx.stroke();
+      ctx.restore();
+    }
+    // Web Shot tethers.
+    for (const [id, w] of webbedRef.current) {
+      if (now >= w.until) { webbedRef.current.delete(id); continue; }
+      const i = idArr.indexOf(id);
+      if (i < 0) continue;
+      ctx.save();
+      ctx.strokeStyle = "rgba(232,236,255,0.5)";
+      ctx.lineWidth = 2;
+      ctx.setLineDash([6, 4]);
+      ctx.beginPath(); ctx.moveTo(w.fromX, w.fromY); ctx.lineTo(xArr[i], yArr[i]); ctx.stroke();
+      ctx.setLineDash([]);
+      const wr = rArr[i] * 0.7;
+      ctx.strokeStyle = "rgba(255,255,255,0.6)";
+      ctx.beginPath(); ctx.arc(xArr[i], yArr[i], wr, 0, Math.PI * 2); ctx.stroke();
+      for (let a = 0; a < 6; a++) {
+        const ang = (a / 6) * Math.PI * 2;
+        ctx.beginPath();
+        ctx.moveTo(xArr[i], yArr[i]);
+        ctx.lineTo(xArr[i] + Math.cos(ang) * wr, yArr[i] + Math.sin(ang) * wr);
+        ctx.stroke();
+      }
+      ctx.restore();
+    }
+    // Time Stop tint.
+    if (now < timeStopUntilRef.current) {
+      ctx.save();
+      ctx.fillStyle = "rgba(90,150,255,0.10)";
+      ctx.fillRect(0, 0, ctx.canvas.width, ctx.canvas.height);
+      ctx.restore();
+    }
+  };
+
   const pickRandomSelectedPower = (): keyof typeof SUPER_BUBBLE_TYPES => {
-    const keys = Object.keys(SUPER_BUBBLE_TYPES) as (keyof typeof SUPER_BUBBLE_TYPES)[];
+    const keys = AVAILABLE_POWER_KEYS;
     const available = keys.filter((k) => selectedPowers[k]);
-    if (available.length === 0) return "flame";
+    if (available.length === 0) return "missile";
     return available[Math.floor(Math.random() * available.length)];
   };
 
   const pickRandomPlayerPower = (): keyof typeof SUPER_BUBBLE_TYPES => {
-    const keys = Object.keys(SUPER_BUBBLE_TYPES) as (keyof typeof SUPER_BUBBLE_TYPES)[];
+    const keys = AVAILABLE_POWER_KEYS;
     const available = keys.filter((k) => selectedPlayerPowers[k]);
-    if (available.length === 0) return "flame";
+    if (available.length === 0) return "missile";
     return available[Math.floor(Math.random() * available.length)];
   };
 
   const pickRandomBrawlPower = (): keyof typeof SUPER_BUBBLE_TYPES => {
-    const keys = Object.keys(SUPER_BUBBLE_TYPES) as (keyof typeof SUPER_BUBBLE_TYPES)[];
+    const keys = AVAILABLE_POWER_KEYS;
     const available = keys.filter((k) => selectedBrawlPowers[k]);
-    if (available.length === 0) return "flame";
+    if (available.length === 0) return "missile";
     return available[Math.floor(Math.random() * available.length)];
   };
 
@@ -7988,7 +10248,7 @@ const ArenaPage: React.FC = () => {
               <stop offset="60%" stopColor="#ffff00" />
               <stop offset="100%" stopColor="#ff0000" />
             </radialGradient>
-            <filter id={`plasmag low${p.id}`}><feGaussianBlur stdDeviation="2" /></filter>
+            <filter id={`plasmaglow${p.id}`}><feGaussianBlur stdDeviation="2" /></filter>
           </defs>
           {/* Outer plasma aura */}
           <circle cx="20" cy="20" r="18" fill={`url(#plasmagrad${p.id})`} opacity="0.9" filter={`url(#plasmaglow${p.id})`} />
@@ -8049,43 +10309,42 @@ const ArenaPage: React.FC = () => {
         </svg>
       );
     } else if (p.type === "sonic_boom") {
-      const expansion = ((Date.now() * 0.003) % 100);
+      // Directional expanding chevron shockwave: ))) ► (not concentric circles).
+      const t = ((Date.now() * 0.006) % 1);
       return (
-        <svg key={`proj-${p.id}`} width={48} height={48} style={baseStyle} viewBox="0 0 48 48" preserveAspectRatio="xMidYMid meet">
+        <svg key={`proj-${p.id}`} width={56} height={40} style={{...baseStyle, transform: `translate(-50%,-50%) rotate(${angleDeg}deg)`}} viewBox="0 0 56 40" preserveAspectRatio="xMidYMid meet">
           <defs>
-            <filter id={`sonicglow${p.id}`}><feGaussianBlur stdDeviation="1" /></filter>
+            <filter id={`sonicglow${p.id}`}><feGaussianBlur stdDeviation="0.8" /></filter>
           </defs>
-          {/* Central shock point */}
-          <circle cx="24" cy="24" r="4" fill="#00ffff" opacity="0.95" filter={`url(#sonicglow${p.id})`} />
-          {/* Sonic wave rings - expanding */}
-          <circle cx="24" cy="24" r={8 + expansion/2} fill="none" stroke="#00ffff" strokeWidth="1.2" opacity={0.8 - expansion/120} />
-          <circle cx="24" cy="24" r={14 + expansion} fill="none" stroke="#00ccff" strokeWidth="0.9" opacity={0.5 - expansion/160} />
-          <circle cx="24" cy="24" r={20 + expansion*1.5} fill="none" stroke="#0099ff" strokeWidth="0.7" opacity={0.3 - expansion/200} />
-          {/* Velocity vectors */}
-          <line x1="24" y1="2" x2="24" y2="10" stroke="#00ffff" strokeWidth="0.8" opacity="0.7" />
-          <line x1="24" y1="38" x2="24" y2="46" stroke="#00ffff" strokeWidth="0.8" opacity="0.7" />
+          {/* Emitter core */}
+          <circle cx="8" cy="20" r="4" fill="#00ffff" opacity="0.95" filter={`url(#sonicglow${p.id})`} />
+          {/* Forward-travelling curved chevron waves */}
+          <path d="M 16 8 Q 26 20 16 32" fill="none" stroke="#00ffff" strokeWidth="2.4" opacity={0.9 - t * 0.3} filter={`url(#sonicglow${p.id})`} />
+          <path d="M 26 6 Q 38 20 26 34" fill="none" stroke="#00ccff" strokeWidth="2" opacity={0.7 - t * 0.3} />
+          <path d="M 36 5 Q 50 20 36 35" fill="none" stroke="#0099ff" strokeWidth="1.6" opacity={0.5 - t * 0.2} />
+          {/* Leading edge spark */}
+          <circle cx={44 + t * 8} cy="20" r="1.6" fill="#ffffff" opacity={0.8 - t * 0.6} />
         </svg>
       );
     } else if (p.type === "shockwave") {
+      // Radial burst wavefront expanding from the leading edge.
+      const t = ((Date.now() * 0.005) % 1);
       return (
-        <svg key={`proj-${p.id}`} width={56} height={16} style={{...baseStyle, transform: `translate(-50%,-50%) rotate(${angleDeg}deg)`}} viewBox="0 0 56 16" preserveAspectRatio="xMidYMid meet">
+        <svg key={`proj-${p.id}`} width={52} height={52} style={{...baseStyle, transform: `translate(-50%,-50%) rotate(${angleDeg}deg)`}} viewBox="0 0 52 52" preserveAspectRatio="xMidYMid meet">
           <defs>
-            <linearGradient id={`shockgrad${p.id}`} x1="0" x2="1" y1="0" y2="0">
-              <stop offset="0%" stopColor="#66ccff" />
-              <stop offset="50%" stopColor="#0099ff" />
-              <stop offset="100%" stopColor="#0066cc" />
-            </linearGradient>
+            <radialGradient id={`shockgrad${p.id}`} cx="50%" cy="50%" r="50%">
+              <stop offset="55%" stopColor="rgba(102,204,255,0)" />
+              <stop offset="85%" stopColor="#0099ff" />
+              <stop offset="100%" stopColor="rgba(0,102,204,0)" />
+            </radialGradient>
             <filter id={`shockglow${p.id}`}><feGaussianBlur stdDeviation="1" /></filter>
           </defs>
-          {/* Main shockwave propagation */}
-          <rect x="0" y="2" width="56" height="12" fill={`url(#shockgrad${p.id})`} opacity="0.7" filter={`url(#shockglow${p.id})`} />
-          {/* Wave crest highlights */}
-          <line x1="8" y1="1" x2="8" y2="3" stroke="#00ffff" strokeWidth="1" opacity="0.8" />
-          <line x1="16" y1="0" x2="16" y2="4" stroke="#00ffff" strokeWidth="1.2" opacity="0.9" />
-          <line x1="24" y1="1" x2="24" y2="3" stroke="#00ffff" strokeWidth="1" opacity="0.8" />
-          <line x1="32" y1="0" x2="32" y2="4" stroke="#00ffff" strokeWidth="1.2" opacity="0.9" />
-          <line x1="40" y1="1" x2="40" y2="3" stroke="#00ffff" strokeWidth="1" opacity="0.8" />
-          <line x1="48" y1="0" x2="48" y2="4" stroke="#00ffff" strokeWidth="1.2" opacity="0.9" />
+          {/* Expanding ring burst */}
+          <circle cx="26" cy="26" r={12 + t * 12} fill="none" stroke="#66ccff" strokeWidth={3 - t * 1.5} opacity={0.9 - t * 0.7} filter={`url(#shockglow${p.id})`} />
+          <circle cx="26" cy="26" r={6 + t * 10} fill="none" stroke="#00ccff" strokeWidth="1.6" opacity={0.7 - t * 0.5} />
+          {/* Compressed leading crescent (direction of travel) */}
+          <path d="M 34 12 Q 48 26 34 40" fill="none" stroke="#ffffff" strokeWidth="2" opacity={0.85 - t * 0.4} filter={`url(#shockglow${p.id})`} />
+          <circle cx="26" cy="26" r="3" fill="#bfefff" opacity="0.9" />
         </svg>
       );
     } else if (p.type === "acid_spray") {
@@ -8250,32 +10509,36 @@ const ArenaPage: React.FC = () => {
 
   // ---------- Leaderboard rendering (no images, no numbering) ----------
 
-  const MAX_LEADER_ENTRIES = 8; // reduced to avoid scrollbar and overflow
+  const MAX_LEADER_ENTRIES = 5; // reduced to avoid scrollbar and overflow
+
+  const BubbleAvatar: React.FC<{ avatar?: number; size?: number }> = ({ avatar = 0, size = 52 }) => (
+    <div style={{ width: size, height: size, borderRadius: "50%", backgroundImage: `url(${AVATAR_SPRITE_SRC})`, backgroundSize: `${size * 6}px ${size}px`, backgroundPosition: `${-(avatar % 6) * size}px 0`, backgroundColor: ["#ef4444", "#22d3ee", "#22c55e", "#facc15", "#a855f7", "#e5e7eb"][avatar % 6], border: "2px solid rgba(255,255,255,0.75)", boxShadow: "0 0 10px rgba(0,217,255,0.55)", flexShrink: 0 }} />
+  );
 
   const renderLeaderboardNormal = () => {
     const top = [...uiBubblesSnapshot].sort((a, b) => b.health - a.health).slice(0, MAX_LEADER_ENTRIES);
     const aliveCount = uiBubblesSnapshot.length;
     return (
-      <div style={{ width: "100%", padding: 8, boxSizing: "border-box", position: 'relative' }} ref={leaderboardRef}>
-        <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 12, paddingBottom: 12, borderBottom: "2px solid rgba(255,215,0,0.5)" }}>
+      <div style={{ width: "80%", padding: 8, boxSizing: "border-box", position: 'relative' }} ref={leaderboardRef}>
+        {/* <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 12, paddingBottom: 12, borderBottom: "2px solid rgba(255,215,0,0.5)" }}>
           <div style={{ fontSize: 20 }}>🏆</div>
           <h3 style={{ margin: 0, color: "#ffd700", fontSize: 16, fontWeight: 700 }}>Leaderboard</h3>
-          <div style={{ marginLeft: "auto", fontSize: 12, fontWeight: 700, color: "#999" }}>{aliveCount} Alive players</div>
-        </div>
+          
+        </div> */}
         
         <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
           {top.map((entry, idx) => {
-            const fullName = (entry.imgSrc.split("/").pop() ?? `#${entry.id}`).replace(/\.(png|jpg|jpeg|webp|gif|svg|bmp|ico)$/i, "");
+            const fullName = entry.name || decodeURIComponent((entry.imgSrc.split("/").pop() ?? `#${entry.id}`).replace(/\.(png|jpg|jpeg|webp|gif|svg|bmp|ico)$/i, ""));
             const healthColor = entry.health > 60 ? "#00ff00" : entry.health > 30 ? "#ffff00" : "#ff0000";
             return (
               <div 
                 key={`entry-${entry.id}`} 
                 style={{ 
                   display: "flex", 
-                  gap: 15, 
+                  gap: 5, 
                   alignItems: "center", 
-                  padding: "10px", 
-                  background: "rgba(255,255,255,0.05)",
+                  padding: "8px 9px", 
+                  background: "rgba(0,0,0,0.55)",
                   borderRadius: 8,
                   border: `1px solid ${healthColor}33`,
                   boxSizing: "border-box",
@@ -8288,8 +10551,8 @@ const ArenaPage: React.FC = () => {
                   display: "flex",
                   alignItems: "center",
                   justifyContent: "center",
-                  width: 28,
-                  height: 28,
+                  width: 20,
+                  height: 20,
                   borderRadius: "50%",
                   background: idx === 0 ? "rgba(255,215,0,0.3)" : idx === 1 ? "rgba(192,192,192,0.3)" : idx === 2 ? "rgba(205,127,50,0.3)" : "rgba(255,255,255,0.1)",
                   border: idx === 0 ? "2px solid #ffd700" : idx === 1 ? "2px solid #c0c0c0" : idx === 2 ? "2px solid #cd7f32" : "1px solid rgba(255,255,255,0.2)",
@@ -8301,19 +10564,11 @@ const ArenaPage: React.FC = () => {
                 </div>
                 
                 {/* Player Image */}
-                <img 
-                  src={entry.imgSrc} 
-                  alt={fullName} 
-                  style={{ 
-                    width: 36, 
-                    height: 36, 
-                    borderRadius: "50%", 
-                    objectFit: "cover", 
-                    flexShrink: 0,
-                    border: `2px solid ${healthColor}`,
-                    boxShadow: `0 0 8px ${healthColor}66`
-                  }} 
-                />
+                {entry.imgSrc ? (
+                  <img src={entry.imgSrc} alt={fullName} style={{ width: 20, height: 20, borderRadius: "50%", objectFit: "cover", flexShrink: 0, border: `2px solid ${healthColor}`, boxShadow: `0 0 8px ${healthColor}66` }} />
+                ) : (
+                  <BubbleAvatar avatar={entry.avatar} size={25} />
+                )}
                 
                 {/* Player Info */}
                 <div style={{ display: "flex", flexDirection: "column", minWidth: 0, flex: 1 }}>
@@ -8342,7 +10597,8 @@ const ArenaPage: React.FC = () => {
         </div>
         
         <div style={{ marginTop: 12, display: 'flex', justifyContent: 'center', alignItems: 'center' }}>
-          <img src={watermarkUrl} alt="watermark" style={{ width: 48, height: 48, borderRadius: "50%", opacity: 0.6, pointerEvents: 'none', userSelect: 'none' }} />
+          <img src={watermarkUrl} alt="watermark" style={{ width: 48, height: 48, borderRadius: "50%", opacity: 1, pointerEvents: 'none', userSelect: 'none' }} />
+          <div style={{ marginLeft: 12, fontSize: 15, fontWeight: 700, color: "#fff" }}>{aliveCount} Alive</div>
         </div>
       </div>
     );
@@ -8361,20 +10617,22 @@ const ArenaPage: React.FC = () => {
           alignItems: "center", 
           gap: 8, 
           padding: "12px 8px", 
-          background: "rgba(76,175,80,0.1)", 
+          background: "rgb(81 93 82 / 50%)", 
           borderRadius: 10,
           border: "1px solid rgba(76,175,80,0.3)",
-          marginBottom: 12
+          marginBottom: 12,
+          position: "relative"
         }}>
+          {eliminatedSide === "heroes" && <div style={{ position: "absolute", inset: 8, display: "grid", placeItems: "center", zIndex: 2, pointerEvents: "none", transform: "rotate(-10deg)", color: "#ff5252", fontSize: 18, fontWeight: 900, letterSpacing: 1, border: "2px solid #ff5252", textShadow: "0 0 8px #000" }}>ELIMINATED</div>}
           <span style={{ fontSize: 18 }}>🟢</span>
-          <div style={{ color: "#4caf50", fontSize: 13, fontWeight: 700, textTransform: "uppercase", letterSpacing: 0.5 }}>Team Heroes</div>
+          <div style={{ color: "#ffffff", fontSize: 13, fontWeight: 700, textTransform: "uppercase", letterSpacing: 0.5 }}>Team Heroes</div>
           <div style={{ marginLeft: "auto", fontSize: 11, color: "#999" }}>{normals.length} active</div>
         </div>
         
         {/* Normal Bubbles - Vertical Stack */}
         <div style={{ display: "flex", flexDirection: "column", gap: 6, marginBottom: 12 }}>
           {normals.map((n, idx) => {
-            const name = (n.imgSrc.split("/").pop() || "").replace(/\.(png|jpg|jpeg|webp|gif|svg|bmp|ico)$/i, "");
+            const name = n.name || decodeURIComponent((n.imgSrc.split("/").pop() || `Player ${idx + 1}`).replace(/\.(png|jpg|jpeg|webp|gif|svg|bmp|ico)$/i, ""));
             const healthColor = n.health > 60 ? "#00ff00" : n.health > 30 ? "#ffff00" : "#ff0000";
             return (
               <div 
@@ -8384,7 +10642,7 @@ const ArenaPage: React.FC = () => {
                   gap: 10, 
                   alignItems: "center",
                   padding: "10px",
-                  background: "rgba(76,175,80,0.1)",
+                  background: "rgb(81 93 82 / 50%)",
                   border: `1px solid ${healthColor}33`,
                   borderRadius: 8
                 }}
@@ -8396,7 +10654,7 @@ const ArenaPage: React.FC = () => {
                   width: 28,
                   height: 28,
                   borderRadius: "50%",
-                  background: "rgba(76,175,80,0.2)",
+                  background: "rgb(81 93 82 / 50%)",
                   fontSize: 12,
                   fontWeight: 700,
                   color: "#4caf50",
@@ -8404,18 +10662,11 @@ const ArenaPage: React.FC = () => {
                 }}>
                   {idx + 1}
                 </div>
-                <img 
-                  src={n.imgSrc} 
-                  alt={name} 
-                  style={{ 
-                    width: 40, 
-                    height: 40, 
-                    borderRadius: "50%", 
-                    objectFit: "cover", 
-                    flexShrink: 0,
-                    border: `2px solid ${healthColor}`
-                  }} 
-                />
+                {n.imgSrc ? (
+                  <img src={n.imgSrc} alt={name} style={{ width: 40, height: 40, borderRadius: "50%", objectFit: "cover", flexShrink: 0, border: `2px solid ${healthColor}` }} />
+                ) : (
+                  <BubbleAvatar avatar={n.avatar} size={40} />
+                )}
                 <div style={{ display: "flex", flexDirection: "column", minWidth: 0, flex: 1 }}>
                   <div style={{ color: "#fff", fontSize: 12, fontWeight: 600, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{name}</div>
                   <div style={{ color: healthColor, fontSize: 11, fontWeight: 600, marginTop: 2 }}>❤️ {Math.round(n.health)}</div>
@@ -8439,11 +10690,13 @@ const ArenaPage: React.FC = () => {
           alignItems: "center", 
           gap: 12, 
           padding: "14px 12px", 
-          background: "rgba(244,67,54,0.15)", 
+          background: "rgba(185, 81, 81, 0.5)", 
           borderRadius: 10,
           border: "2px solid rgba(244,67,54,0.5)",
-          boxShadow: "0 0 20px rgba(244,67,54,0.3)"
+          boxShadow: "0 0 20px rgba(244,67,54,0.3)",
+          position: "relative"
         }}>
+          {eliminatedSide === "boss" && <div style={{ position: "absolute", inset: 18, display: "grid", placeItems: "center", zIndex: 2, pointerEvents: "none", transform: "rotate(-12deg)", color: "#ff5252", fontSize: 22, fontWeight: 900, letterSpacing: 2, border: "3px solid #ff5252", textShadow: "0 0 10px #000", opacity: 0.9 }}>ELIMINATED</div>}
           <div style={{ fontSize: 28 }}>☠️</div>
           {superBubbleSnapshot && superBubbleSnapshot.imgSrc && (
             <img 
@@ -8461,7 +10714,7 @@ const ArenaPage: React.FC = () => {
             />
           )}
           <div style={{ textAlign: "center" }}>
-            <div style={{ color: "#fff", fontSize: 14, fontWeight: 700 }}>Final Boss</div>
+            <div style={{ color: "#fff", fontSize: 14, fontWeight: 700 }}>{superBubbleSnapshot?.name || "Final Boss"}</div>
             <div style={{ color: sbHealthPct > 65 ? "#00ff00" : sbHealthPct > 30 ? "#ffff00" : "#ff0000", fontSize: 13, fontWeight: 700, marginTop: 6 }}>
               ❤️ {sbHealth} / {Math.round(bossSuperbubbleHealth)}
             </div>
@@ -8485,7 +10738,7 @@ const ArenaPage: React.FC = () => {
         </div>
         
         <div style={{ marginTop: 12, display: 'flex', justifyContent: 'center', alignItems: 'center' }}>
-          <img src={watermarkUrl} alt="watermark" style={{ width: 48, height: 48, borderRadius: "50%", opacity: 0.6, pointerEvents: 'none', userSelect: 'none' }} />
+          <img src={watermarkUrl} alt="watermark" style={{ width: 48, height: 48, borderRadius: "50%", opacity: 1, pointerEvents: 'none', userSelect: 'none' }} />
         </div>
       </div>
     );
@@ -8496,14 +10749,14 @@ const ArenaPage: React.FC = () => {
     if (brawlMode === "1v1" && uiBubblesSnapshot.length >= 2) {
       const left = uiBubblesSnapshot[0];
       const right = uiBubblesSnapshot[1];
-      const leftName = decodeURIComponent((left.imgSrc.split("/").pop() ?? `#${left.id}`).replace(/\.(png|jpg|jpeg|webp|gif|svg|bmp|ico)$/i, "")).replace(/%20/g, " ");
-      const rightName = decodeURIComponent((right.imgSrc.split("/").pop() ?? `#${right.id}`).replace(/\.(png|jpg|jpeg|webp|gif|svg|bmp|ico)$/i, "")).replace(/%20/g, " ");
+      const leftName = left.name || decodeURIComponent((left.imgSrc.split("/").pop() ?? `#${left.id}`).replace(/\.(png|jpg|jpeg|webp|gif|svg|bmp|ico)$/i, "")).replace(/%20/g, " ");
+      const rightName = right.name || decodeURIComponent((right.imgSrc.split("/").pop() ?? `#${right.id}`).replace(/\.(png|jpg|jpeg|webp|gif|svg|bmp|ico)$/i, "")).replace(/%20/g, " ");
       
       return (
         <div style={{ width: "100%", padding: 8 }}>
           {/* Player 1 */}
-          <div style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: 8, padding: "12px 8px", borderRadius: 8, background: "rgba(100,100,255,0.08)" }}>
-            <img src={left.imgSrc} alt={leftName} style={{ width: 52, height: 52, borderRadius: "50%", objectFit: "cover", border: "2px solid rgba(100,150,255,0.5)" }} />
+          <div style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: 8, padding: "12px 8px", borderRadius: 8, background: "rgb(0 0 0 / 50%)" }}>
+              {left.imgSrc ? <img src={left.imgSrc} alt={leftName} style={{ width: 52, height: 52, borderRadius: "50%", objectFit: "cover", border: "2px solid rgba(100,150,255,0.5)" }} /> : <BubbleAvatar avatar={left.avatar} />}
             <div style={{ textAlign: "center", width: "100%", minWidth: 0 }}>
               <div style={{ color: "#fff", fontSize: 13, fontWeight: 700, wordBreak: "break-word", maxWidth: "100%" }} title={leftName}>{leftName}</div>
               <div style={{ color: left.health > 60 ? "lime" : left.health > 30 ? "yellow" : "red", fontSize: 12, fontWeight: 600, marginTop: 6 }}>❤️ {Math.round(left.health)}</div>
@@ -8518,8 +10771,8 @@ const ArenaPage: React.FC = () => {
           </div>
           
           {/* Player 2 */}
-          <div style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: 8, padding: "12px 8px", borderRadius: 8, background: "rgba(255,100,100,0.08)" }}>
-            <img src={right.imgSrc} alt={rightName} style={{ width: 52, height: 52, borderRadius: "50%", objectFit: "cover", border: "2px solid rgba(255,100,100,0.5)" }} />
+          <div style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: 8, padding: "12px 8px", borderRadius: 8, background: "rgb(0 0 0 / 50%)" }}>
+              {right.imgSrc ? <img src={right.imgSrc} alt={rightName} style={{ width: 52, height: 52, borderRadius: "50%", objectFit: "cover", border: "2px solid rgba(255,100,100,0.5)" }} /> : <BubbleAvatar avatar={right.avatar} />}
             <div style={{ textAlign: "center", width: "100%", minWidth: 0 }}>
               <div style={{ color: "#fff", fontSize: 13, fontWeight: 700, wordBreak: "break-word", maxWidth: "100%" }} title={rightName}>{rightName}</div>
               <div style={{ color: right.health > 60 ? "lime" : right.health > 30 ? "yellow" : "red", fontSize: 12, fontWeight: 600, marginTop: 6 }}>❤️ {Math.round(right.health)}</div>
@@ -8527,7 +10780,7 @@ const ArenaPage: React.FC = () => {
           </div>
           
           <div style={{ marginTop: 12, display: 'flex', justifyContent: 'center', alignItems: 'center' }}>
-            <img src={watermarkUrl} alt="watermark" style={{ width: 40, height: 40, borderRadius: "50%", opacity: 0.28, pointerEvents: 'none', userSelect: 'none' }} />
+            <img src={watermarkUrl} alt="watermark" style={{ width: 40, height: 40, borderRadius: "50%", opacity: 1, pointerEvents: 'none', userSelect: 'none' }} />
           </div>
         </div>
       );
@@ -8537,14 +10790,14 @@ const ArenaPage: React.FC = () => {
     if (brawlMode === "1vMany" && uiBubblesSnapshot.length >= 2) {
       const solo = uiBubblesSnapshot[0];
       const many = uiBubblesSnapshot.slice(1, 10); // Up to 9 opponents
-      const soloName = decodeURIComponent((solo.imgSrc.split("/").pop() ?? `#${solo.id}`).replace(/\.(png|jpg|jpeg|webp|gif|svg|bmp|ico)$/i, "")).replace(/%20/g, " ");
+      const soloName = solo.name || decodeURIComponent((solo.imgSrc.split("/").pop() ?? `#${solo.id}`).replace(/\.(png|jpg|jpeg|webp|gif|svg|bmp|ico)$/i, "")).replace(/%20/g, " ");
       
       return (
         <div style={{ width: "100%", padding: 6, maxHeight: "95vh", overflow: "auto" }}>
           {/* Solo Player Hero */}
-          <div style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: 8, padding: "12px", borderRadius: 10, background: "rgba(76,175,80,0.15)", marginBottom: 10 }}>
+          <div style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: 8, padding: "12px", borderRadius: 10, background: "rgba(0,0,0,50%)", marginBottom: 10 }}>
             <div style={{ fontSize: 18 }}>👑</div>
-            <img src={solo.imgSrc} alt={soloName} style={{ width: 56, height: 56, borderRadius: "50%", objectFit: "cover", border: "3px solid #4caf50", boxShadow: "0 0 12px rgba(76,175,80,0.6)" }} />
+            {solo.imgSrc ? <img src={solo.imgSrc} alt={soloName} style={{ width: 56, height: 56, borderRadius: "50%", objectFit: "cover", border: "3px solid #4caf50", boxShadow: "0 0 12px rgba(76,175,80,0.6)" }} /> : <BubbleAvatar avatar={solo.avatar} size={56} />}
             <div style={{ textAlign: "center", width: "100%" }}>
               <div style={{ color: "#4caf50", fontSize: 11, fontWeight: 600, marginBottom: 2 }}>SOLO HERO</div>
               <div style={{ color: "#fff", fontSize: 12, fontWeight: 700, wordBreak: "break-word" }} title={soloName}>{soloName}</div>
@@ -8555,18 +10808,18 @@ const ArenaPage: React.FC = () => {
           {/* VS Divider */}
           <div style={{ display: "flex", alignItems: "center", gap: 8, margin: "8px 0", justifyContent: "center" }}>
             <div style={{ flex: 1, height: "1px", background: "rgba(255,152,0,0.3)" }}></div>
-            <div style={{ fontSize: 16, fontWeight: 700, color: "#ff9800", whiteSpace: "nowrap" }}>VS MANY</div>
+            <div style={{ fontSize: 16, fontWeight: 700, color: "#ff9800", whiteSpace: "nowrap" }}>VS</div>
             <div style={{ flex: 1, height: "1px", background: "rgba(255,152,0,0.3)" }}></div>
           </div>
           
           {/* Many Opponents - Vertical Stack */}
           <div style={{ display: "flex", flexDirection: "column", gap: 6, paddingTop: 6 }}>
             {many.map((opponent, idx) => {
-              const opponentName = decodeURIComponent((opponent.imgSrc.split("/").pop() ?? `#${opponent.id}`).replace(/\.(png|jpg|jpeg|webp|gif|svg|bmp|ico)$/i, "")).replace(/%20/g, " ");
+              const opponentName = opponent.name || decodeURIComponent((opponent.imgSrc.split("/").pop() ?? `#${opponent.id}`).replace(/\.(png|jpg|jpeg|webp|gif|svg|bmp|ico)$/i, "")).replace(/%20/g, " ");
               return (
-                <div key={`opponent-${opponent.id}`} style={{ display: "flex", gap: 8, alignItems: "center", padding: "10px", background: "rgba(244,67,54,0.1)", border: "1px solid rgba(244,67,54,0.2)", borderRadius: 8, transition: "all 0.2s" }}>
+                <div key={`opponent-${opponent.id}`} style={{ display: "flex", gap: 8, alignItems: "center", padding: "10px", background: "rgba(0,0,0,50%)", border: "1px solid rgba(244,67,54,0.2)", borderRadius: 8, transition: "all 0.2s" }}>
                   <div style={{ flexShrink: 0, display: "flex", alignItems: "center", justifyContent: "center", width: 24, height: 24, background: "rgba(244,67,54,0.3)", borderRadius: "50%", fontSize: 12, fontWeight: 700, color: "#ff6b6b" }}>{idx + 1}</div>
-                  <img src={opponent.imgSrc} alt={opponentName} style={{ width: 40, height: 40, borderRadius: "50%", objectFit: "cover", flexShrink: 0 }} />
+                  {opponent.imgSrc ? <img src={opponent.imgSrc} alt={opponentName} style={{ width: 40, height: 40, borderRadius: "50%", objectFit: "cover", flexShrink: 0 }} /> : <BubbleAvatar avatar={opponent.avatar} size={40} />}
                   <div style={{ flex: 1, minWidth: 0 }}>
                     <div style={{ color: "#ddd", fontSize: 12, fontWeight: 600, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }} title={opponentName}>{opponentName}</div>
                     <div style={{ color: opponent.health > 60 ? "lime" : opponent.health > 30 ? "yellow" : "red", fontSize: 11, fontWeight: 600, marginTop: 2 }}>❤️ {Math.round(opponent.health)} HP</div>
@@ -8577,7 +10830,7 @@ const ArenaPage: React.FC = () => {
           </div>
           
           <div style={{ marginTop: 12, display: 'flex', justifyContent: 'center', alignItems: 'center' }}>
-            <img src={watermarkUrl} alt="watermark" style={{ width: 40, height: 40, borderRadius: "50%", opacity: 0.28, pointerEvents: 'none', userSelect: 'none' }} />
+            <img src={watermarkUrl} alt="watermark" style={{ width: 40, height: 40, borderRadius: "50%", opacity: 1, pointerEvents: 'none', userSelect: 'none' }} />
           </div>
         </div>
       );
@@ -8607,7 +10860,7 @@ const ArenaPage: React.FC = () => {
     };
     
     // Handle draw/no winner case - check if bubble count is 0 or if winner is marked as draw
-    const isDraw = bubbleCount === 0 || winnerBubble?.imgSrc === "draw";
+    const isDraw = winnerBubble?.imgSrc === "draw";
     console.log('isDraw:', isDraw, 'bubbleCount:', bubbleCount, 'winnerBubble?.imgSrc:', winnerBubble?.imgSrc);
     if (isDraw) {
       return (
@@ -8741,6 +10994,7 @@ const ArenaPage: React.FC = () => {
   // ---------- Initial typed arrays ----------
 
   useEffect(() => {
+    if (idListRef.current && avatarIndexRef.current) return;
     const cap = MAX_CAPACITY.current;
     idListRef.current = new Int32Array(cap);
     xRef.current = new Float32Array(cap);
@@ -8892,10 +11146,28 @@ const ArenaPage: React.FC = () => {
     }
   };
 
-  // UI helpers for toggles (replace checkboxes)
-  const ToggleButton: React.FC<{ on: boolean; onToggle: () => void; label: string }> = ({ on, onToggle, label }) => (
-    <button onClick={onToggle} style={{ padding: "6px 10px", borderRadius: 8, background: on ? "#6b44ff" : "#333", color: "#fff", border: "none", cursor: "pointer" }}>
-      {label}: {on ? "ON" : "OFF"}
+  // UI helpers for toggles — sliding pill switch (label prop kept for API compat, not rendered).
+  const ToggleButton: React.FC<{ on: boolean; onToggle: () => void; label: string }> = ({ on, onToggle }) => (
+    <button
+      onClick={onToggle}
+      role="switch"
+      aria-checked={on}
+      style={{
+        position: "relative", width: 44, height: 24, borderRadius: 999, border: "none", cursor: "pointer",
+        padding: 0, flexShrink: 0,
+        background: on ? "linear-gradient(90deg, #7c3aed, #22d3ee)" : "rgba(255,255,255,0.15)",
+        boxShadow: on ? "0 0 10px rgba(124,58,237,0.7)" : "inset 0 0 0 1px rgba(255,255,255,0.15)",
+        transition: "background 0.2s ease",
+      }}
+    >
+      <span
+        style={{
+          position: "absolute", top: 2, left: on ? 22 : 2,
+          width: 20, height: 20, borderRadius: "50%",
+          background: "#fff", boxShadow: "0 1px 3px rgba(0,0,0,0.5)",
+          transition: "left 0.18s ease",
+        }}
+      />
     </button>
   );
 
@@ -9015,7 +11287,7 @@ const ArenaPage: React.FC = () => {
   }
 
   // Step 2: Arena Shape Selection
-  if (arenaTypeSelected && !isRunning && countRef.current === 0 && !winner && !winnersList && !winnersImages && (arenaType !== ARENA_TYPES.BRAWL || brawlModeSelected)) {
+  if (arenaTypeSelected && !requestedShape && !isRunning && countRef.current === 0 && !winner && !winnersList && !winnersImages && (arenaType !== ARENA_TYPES.BRAWL || brawlModeSelected)) {
     return (
       <div style={{ height: "100vh", background: "#111", color: "white", display: "flex", flexDirection: "column", justifyContent: "center", alignItems: "center", gap: 20, padding: "40px" }}>
         <h1 style={{ fontSize: 42, fontWeight: 700, marginBottom: 10 }}>Choose Arena Shape</h1>
@@ -9105,102 +11377,82 @@ const ArenaPage: React.FC = () => {
 
   // Layout: shaped arena + leaderboard + right sidebar controls
   return (
-    <div className="arena-page" style={{ display: "flex", height: "100vh", width: "100vw", background: pageBackgroundColor, overflow: "hidden", position: "relative" }}>
-      
+    <div className="arena-page" style={{ display: "flex", height: "100vh", width: "100vw", background: activeThemeBgImage ? `${arenaOuterBackground}, url(${activeThemeBgImage}) center / cover, ${activeArenaTheme.background}` : `${arenaOuterBackground}, ${activeArenaTheme.background}, ${pageBackgroundColor}`, overflow: "hidden", position: "relative" }}>
       {/* Spike Animation Overlay - Centered in arena+leaderboard area */}
       {showSpikeAnimation && (
         <div style={{
           position: "absolute",
           top: 0,
-          left: 0,
-          width: "calc(100vw - 400px)", // Exclude right sidebar
+          left: "320px",
+          width: "calc(100vw - 320px)",
           height: "100vh",
-          background: "rgba(0,0,0,0.9)",
+          background: "radial-gradient(circle at 50% 50%, rgba(20,10,5,0.75), rgba(0,0,0,0.93) 70%)",
           zIndex: 10000,
           display: "flex",
           alignItems: "center",
           justifyContent: "center",
-          animation: "fadeIn 0.3s ease-out",
+          animation: "animeContainerBurst 0.5s cubic-bezier(0.2,0.9,0.3,1) both",
           overflow: "hidden",
           pointerEvents: "none"
         }}>
+          <div className="anime-impact-fx" aria-hidden="true" style={{ position: "absolute", inset: 0, pointerEvents: "none", overflow: "hidden" }}>
+            <div style={{ position: "absolute", top: "50%", left: "50%", width: "220vmax", height: "220vmax", marginLeft: "-110vmax", marginTop: "-110vmax", background: "repeating-conic-gradient(from 0deg, #ff660022 0deg 2deg, transparent 2deg 10deg)", animation: "speedLinesPulse 0.7s ease-out both", mixBlendMode: "screen" }} />
+            <div style={{ position: "absolute", top: 0, left: "-10%", width: "70%", height: "100%", background: "linear-gradient(100deg, transparent, #ff6600cc 45%, transparent 55%)", clipPath: "polygon(0 0, 70% 0, 55% 100%, 0% 100%)", animation: "animeBarLeft 0.6s cubic-bezier(0.16,1,0.3,1) both", filter: "blur(1px)" }} />
+            <div style={{ position: "absolute", top: 0, right: "-10%", width: "70%", height: "100%", background: "linear-gradient(260deg, transparent, #ff4500cc 45%, transparent 55%)", clipPath: "polygon(30% 0, 100% 0, 100% 100%, 45% 100%)", animation: "animeBarRight 0.6s cubic-bezier(0.16,1,0.3,1) both", filter: "blur(1px)" }} />
+            <div style={{ position: "absolute", inset: 0, background: "#fff", animation: "animeFlashStrike 0.5s ease-out both", mixBlendMode: "overlay" }} />
+          </div>
           <div style={{
             position: "relative",
-            width: "500px",
-            height: "300px",
+            width: "900px",
+            height: "260px",
             display: "flex",
-            flexDirection: "column",
             alignItems: "center",
-            justifyContent: "center",
-            perspective: "1000px"
+            justifyContent: "center"
           }}>
-            {/* 3D Spikes rising from ground */}
-            {[...Array(7)].map((_, i) => (
-              <div key={`spike-visual-${i}`} style={{
+            {/* Diagonal blade slash sweeping across the screen */}
+            <div style={{
+              position: "absolute",
+              top: "50%",
+              left: "-20%",
+              width: "140%",
+              height: "10px",
+              background: "linear-gradient(90deg, transparent, #fff 20%, #ff6600 50%, #fff 80%, transparent)",
+              boxShadow: "0 0 30px #ff6600, 0 0 60px #ff4500",
+              transformOrigin: "left center",
+              animation: "bladeWipe 0.5s cubic-bezier(0.7,0,0.3,1) 0.1s both"
+            }} />
+            {/* Metal shards kicked up by the slash */}
+            {[...Array(10)].map((_, i) => (
+              <div key={`shard-${i}`} style={{
                 position: "absolute",
-                bottom: "-80px",
-                left: `${30 + i * 65}px`,
-                width: "0",
-                height: "0",
-                borderLeft: "20px solid transparent",
-                borderRight: "20px solid transparent",
-                borderBottom: "100px solid #ff6600",
-                filter: "drop-shadow(0 0 20px #ff4500)",
-                animation: `spikeRise ${0.5 + i * 0.1}s cubic-bezier(0.34, 1.56, 0.64, 1) forwards`,
-                transformOrigin: "bottom center",
+                top: "50%",
+                left: `${8 + i * 9}%`,
+                width: "14px",
+                height: "14px",
+                background: "linear-gradient(135deg, #ffcc80, #ff4500)",
+                clipPath: "polygon(50% 0%, 100% 100%, 0% 100%)",
+                animation: `shardFall 0.9s ease-in ${0.35 + i * 0.03}s both`,
                 opacity: 0
               }} />
             ))}
-            
-            {/* Glowing ground crack effect */}
+            {/* Title revealed by the blade's wipe */}
             <div style={{
-              position: "absolute",
-              bottom: "0",
-              width: "100%",
-              height: "4px",
-              background: "linear-gradient(90deg, transparent, #ff6600, #ff4500, #ff6600, transparent)",
-              boxShadow: "0 0 20px #ff6600, 0 0 40px #ff4500",
-              animation: "crackGlow 1s ease-in-out infinite"
-            }} />
-            
-            {/* Main text */}
-            <div style={{
-              fontSize: "48px",
-              fontWeight: "900",
-              background: "linear-gradient(135deg, #ff4500, #ff8c00, #ffa500)",
+              fontSize: "64px",
+              fontWeight: 900,
+              background: "linear-gradient(135deg, #fff5e6, #ff8c00, #ff4500)",
               WebkitBackgroundClip: "text",
               WebkitTextFillColor: "transparent",
               backgroundClip: "text",
-              textShadow: "0 0 40px rgba(255,69,0,0.8)",
-              animation: "textPulse3D 1s ease-in-out infinite",
-              transform: "rotateX(10deg)",
-              letterSpacing: "4px",
+              textShadow: "0 0 30px rgba(255,120,0,0.9)",
+              letterSpacing: "6px",
               textTransform: "uppercase",
-              zIndex: 10,
-              position: "relative",
-              marginBottom: "30px",
               textAlign: "center",
-              whiteSpace: "nowrap"
+              whiteSpace: "nowrap",
+              clipPath: "inset(0 100% 0 0)",
+              animation: "textWipeReveal 0.45s steps(18) 0.3s forwards, animeTextGlitch 1.3s ease-in-out 0.8s infinite"
             }}>
-              ⚠️ SPIKES ENABLED
+              SPIKES ENABLED
             </div>
-            
-            {/* Particle effects */}
-            {[...Array(30)].map((_, i) => (
-              <div key={i} style={{
-                position: "absolute",
-                width: "4px",
-                height: "4px",
-                background: "#ff6600",
-                borderRadius: "50%",
-                top: "50%",
-                left: "50%",
-                animation: `particle${i % 4} 2s ease-out infinite`,
-                animationDelay: `${i * 0.05}s`,
-                opacity: 0,
-                boxShadow: "0 0 10px #ff6600"
-              }} />
-            ))}
           </div>
         </div>
       )}
@@ -9210,123 +11462,88 @@ const ArenaPage: React.FC = () => {
         <div style={{
           position: "absolute",
           top: 0,
-          left: 0,
-          width: "calc(100vw - 400px)",
+          left: "320px",
+          width: "calc(100vw - 320px)",
           height: "100vh",
-          background: "rgba(0,0,0,0.9)",
+          background: "radial-gradient(circle at 50% 50%, rgba(25,8,8,0.75), rgba(0,0,0,0.93) 70%)",
           zIndex: 10000,
           display: "flex",
           alignItems: "center",
           justifyContent: "center",
-          animation: "fadeIn 0.3s ease-out",
+          animation: "animeContainerBurst 0.5s cubic-bezier(0.2,0.9,0.3,1) both",
           overflow: "hidden",
           pointerEvents: "none"
         }}>
+          <div className="anime-impact-fx" aria-hidden="true" style={{ position: "absolute", inset: 0, pointerEvents: "none", overflow: "hidden" }}>
+            <div style={{ position: "absolute", top: "50%", left: "50%", width: "220vmax", height: "220vmax", marginLeft: "-110vmax", marginTop: "-110vmax", background: "repeating-conic-gradient(from 0deg, #ff444422 0deg 2deg, transparent 2deg 10deg)", animation: "speedLinesPulse 0.7s ease-out both", mixBlendMode: "screen" }} />
+            <div style={{ position: "absolute", top: 0, left: "-10%", width: "70%", height: "100%", background: "linear-gradient(100deg, transparent, #ff4444cc 45%, transparent 55%)", clipPath: "polygon(0 0, 70% 0, 55% 100%, 0% 100%)", animation: "animeBarLeft 0.6s cubic-bezier(0.16,1,0.3,1) both", filter: "blur(1px)" }} />
+            <div style={{ position: "absolute", top: 0, right: "-10%", width: "70%", height: "100%", background: "linear-gradient(260deg, transparent, #cc2222cc 45%, transparent 55%)", clipPath: "polygon(30% 0, 100% 0, 100% 100%, 45% 100%)", animation: "animeBarRight 0.6s cubic-bezier(0.16,1,0.3,1) both", filter: "blur(1px)" }} />
+            <div style={{ position: "absolute", inset: 0, background: "#fff", animation: "animeFlashStrike 0.5s ease-out both", mixBlendMode: "overlay" }} />
+          </div>
           <div style={{
             position: "relative",
-            width: "500px",
-            height: "400px",
+            width: "420px",
+            height: "420px",
             display: "flex",
             flexDirection: "column",
             alignItems: "center",
-            justifyContent: "center",
-            perspective: "1000px"
+            justifyContent: "center"
           }}>
-            {/* Rotating saw blades */}
-            {[...Array(3)].map((_, i) => (
-              <div key={`blade-anim-${i}`} style={{
-                position: "absolute",
-                width: `${100 + i * 40}px`,
-                height: `${100 + i * 40}px`,
-                animation: `bladeRotate ${1.5 - i * 0.3}s linear infinite`,
-                opacity: 0.8 - i * 0.2,
-                filter: `drop-shadow(0 0 ${15 + i * 5}px #ff4444)`
-              }}>
-                <svg viewBox="0 0 100 100" style={{ width: "100%", height: "100%" }}>
-                  <defs>
-                    <linearGradient id={`bladeGrad${i}`} x1="0%" y1="0%" x2="100%" y2="100%">
-                      <stop offset="0%" stopColor="#888" />
-                      <stop offset="50%" stopColor="#ddd" />
-                      <stop offset="100%" stopColor="#666" />
-                    </linearGradient>
-                  </defs>
-                  {/* Main ring */}
-                  <circle cx="50" cy="50" r="35" fill="none" stroke={`url(#bladeGrad${i})`} strokeWidth="8" />
-                  {/* Teeth */}
-                  {[...Array(12)].map((_, t) => {
-                    const angle = (t * 30) * Math.PI / 180;
-                    const innerR = 39;
-                    const outerR = 48;
-                    const x1 = 50 + Math.cos(angle - 0.15) * innerR;
-                    const y1 = 50 + Math.sin(angle - 0.15) * innerR;
-                    const x2 = 50 + Math.cos(angle) * outerR;
-                    const y2 = 50 + Math.sin(angle) * outerR;
-                    const x3 = 50 + Math.cos(angle + 0.15) * innerR;
-                    const y3 = 50 + Math.sin(angle + 0.15) * innerR;
-                    return (
-                      <polygon
-                        key={t}
-                        points={`${x1},${y1} ${x2},${y2} ${x3},${y3}`}
-                        fill={`url(#bladeGrad${i})`}
-                      />
-                    );
-                  })}
-                  {/* Center hole */}
-                  <circle cx="50" cy="50" r="15" fill="#222" stroke="#444" strokeWidth="2" />
-                </svg>
-              </div>
-            ))}
-            
-            {/* Sparks flying outward */}
-            {[...Array(20)].map((_, i) => (
-              <div key={`spark-${i}`} style={{
-                position: "absolute",
-                width: "6px",
-                height: "6px",
-                background: i % 2 === 0 ? "#ffaa00" : "#ff4444",
-                borderRadius: "50%",
-                top: "50%",
-                left: "50%",
-                animation: `bladeSpark 1s ease-out infinite`,
-                animationDelay: `${i * 0.05}s`,
-                opacity: 0,
-                boxShadow: `0 0 8px ${i % 2 === 0 ? "#ffaa00" : "#ff4444"}`,
-                transform: `rotate(${i * 18}deg)`
-              }} />
-            ))}
-            
-            {/* Main text */}
+            {/* Mechanical iris aperture spinning open and away */}
             <div style={{
-              fontSize: "48px",
-              fontWeight: "900",
-              background: "linear-gradient(135deg, #ff4444, #cc2222, #ff6666)",
+              position: "absolute",
+              width: "320px",
+              height: "320px",
+              borderRadius: "50%",
+              background: "conic-gradient(#3a3a3a 0deg 40deg, transparent 40deg 45deg, #3a3a3a 45deg 85deg, transparent 85deg 90deg, #3a3a3a 90deg 130deg, transparent 130deg 135deg, #3a3a3a 135deg 175deg, transparent 175deg 180deg, #3a3a3a 180deg 220deg, transparent 220deg 225deg, #3a3a3a 225deg 265deg, transparent 265deg 270deg, #3a3a3a 270deg 310deg, transparent 310deg 315deg, #3a3a3a 315deg 355deg, transparent 355deg 360deg)",
+              boxShadow: "0 0 40px rgba(255,68,68,0.5)",
+              animation: "irisSpinOpen 0.7s cubic-bezier(0.6,0,0.2,1) both"
+            }} />
+            <div style={{
+              position: "absolute",
+              width: "140px",
+              height: "140px",
+              borderRadius: "50%",
+              border: "4px solid #ff4444",
+              boxShadow: "0 0 20px #ff4444",
+              animation: "ringPulseOut 0.8s ease-out 0.25s both"
+            }} />
+            {/* Twinkling sparks at the iris edge */}
+            {[...Array(16)].map((_, i) => {
+              const a = (i * 22.5) * Math.PI / 180;
+              return (
+                <div key={`spark2-${i}`} style={{
+                  position: "absolute",
+                  top: "50%",
+                  left: "50%",
+                  width: "5px",
+                  height: "5px",
+                  borderRadius: "50%",
+                  background: i % 2 ? "#ffaa00" : "#ff4444",
+                  boxShadow: "0 0 10px currentColor",
+                  transform: `translate(${Math.cos(a) * 160}px, ${Math.sin(a) * 160}px)`,
+                  animation: `sparkTwinkle 0.7s ease-out ${0.4 + i * 0.015}s both`
+                }} />
+              );
+            })}
+            {/* Title stamped on a rotating metal plate */}
+            <div style={{
+              position: "relative",
+              fontSize: "40px",
+              fontWeight: 900,
+              background: "linear-gradient(135deg, #fff, #ff6666, #cc2222)",
               WebkitBackgroundClip: "text",
               WebkitTextFillColor: "transparent",
               backgroundClip: "text",
-              textShadow: "0 0 40px rgba(255,68,68,0.8)",
-              animation: "textPulse3D 1s ease-in-out infinite",
-              transform: "rotateX(10deg)",
-              letterSpacing: "4px",
+              textShadow: "0 0 30px rgba(255,68,68,0.9)",
+              letterSpacing: "3px",
               textTransform: "uppercase",
-              zIndex: 10,
-              position: "relative",
-              marginBottom: "30px",
               textAlign: "center",
-              whiteSpace: "nowrap"
+              whiteSpace: "nowrap",
+              animation: "stampDown 0.5s cubic-bezier(0.2,0.9,0.3,1) 0.55s both, animeTextGlitch 1.3s ease-in-out 1.1s infinite"
             }}>
-              ⚔️ BLADES ENABLED
+              BLADES ENABLED
             </div>
-            
-            {/* Bottom metallic line */}
-            <div style={{
-              position: "absolute",
-              bottom: "60px",
-              width: "80%",
-              height: "4px",
-              background: "linear-gradient(90deg, transparent, #888, #ddd, #888, transparent)",
-              boxShadow: "0 0 15px rgba(255,255,255,0.5)",
-              animation: "crackGlow 1s ease-in-out infinite"
-            }} />
           </div>
         </div>
       )}
@@ -9336,114 +11553,96 @@ const ArenaPage: React.FC = () => {
         <div style={{
           position: "absolute",
           top: 0,
-          left: 0,
-          width: "calc(100vw - 400px)",
+          left: "320px",
+          width: "calc(100vw - 320px)",
           height: "100vh",
-          background: "linear-gradient(135deg, rgba(0,0,0,0.95), rgba(30,30,60,0.95))",
+          background: "radial-gradient(circle at 50% 40%, rgba(40,40,80,0.85), rgba(0,0,0,0.96) 75%)",
           zIndex: 10000,
           display: "flex",
           alignItems: "center",
           justifyContent: "center",
-          animation: "fadeIn 0.3s ease-out",
+          animation: "animeContainerBurst 0.55s cubic-bezier(0.2,0.9,0.3,1) both",
           overflow: "hidden",
           pointerEvents: "none"
         }}>
+          <div className="anime-impact-fx" aria-hidden="true" style={{ position: "absolute", inset: 0, pointerEvents: "none", overflow: "hidden" }}>
+            <div style={{ position: "absolute", top: "50%", left: "50%", width: "220vmax", height: "220vmax", marginLeft: "-110vmax", marginTop: "-110vmax", background: "repeating-conic-gradient(from 0deg, #4fc3f722 0deg 2deg, transparent 2deg 10deg)", animation: "speedLinesPulse 0.8s ease-out both", mixBlendMode: "screen" }} />
+            <div style={{ position: "absolute", top: 0, left: "-10%", width: "70%", height: "100%", background: "linear-gradient(100deg, transparent, #4fc3f7cc 45%, transparent 55%)", clipPath: "polygon(0 0, 70% 0, 55% 100%, 0% 100%)", animation: "animeBarLeft 0.65s cubic-bezier(0.16,1,0.3,1) both", filter: "blur(1px)" }} />
+            <div style={{ position: "absolute", top: 0, right: "-10%", width: "70%", height: "100%", background: "linear-gradient(260deg, transparent, #ff5722cc 45%, transparent 55%)", clipPath: "polygon(30% 0, 100% 0, 100% 100%, 45% 100%)", animation: "animeBarRight 0.65s cubic-bezier(0.16,1,0.3,1) both", filter: "blur(1px)" }} />
+            <div style={{ position: "absolute", inset: 0, background: "#fff", animation: "animeFlashStrike 0.55s ease-out both", mixBlendMode: "overlay" }} />
+          </div>
           <div style={{
             position: "relative",
-            width: "600px",
-            height: "400px",
+            width: "760px",
+            height: "360px",
             display: "flex",
             flexDirection: "column",
             alignItems: "center",
             justifyContent: "center"
           }}>
-            {/* Bubbles colliding */}
-            {[...Array(8)].map((_, i) => (
-              <div key={`bubble-${i}`} style={{
-                position: "absolute",
-                width: `${60 + i * 10}px`,
-                height: `${60 + i * 10}px`,
-                borderRadius: "50%",
-                background: `radial-gradient(circle at 30% 30%, ${['#4fc3f7', '#9c27b0', '#ff5722', '#4caf50', '#ffc107', '#e91e63', '#00bcd4', '#ff9800'][i]}, ${['#0288d1', '#6a1b9a', '#d32f2f', '#388e3c', '#f57c00', '#c2185b', '#0097a7', '#f57c00'][i]})`,
-                boxShadow: `0 0 30px ${['#4fc3f7', '#9c27b0', '#ff5722', '#4caf50', '#ffc107', '#e91e63', '#00bcd4', '#ff9800'][i]}`,
-                animation: `bubbleCollide${i % 4} 2s ease-in-out infinite`,
-                animationDelay: `${i * 0.1}s`,
-                opacity: 0.9
-              }} />
-            ))}
-            
-            {/* Crossed swords decoration */}
+            {/* Two banners drop in from top/bottom and clash */}
             <div style={{
               position: "absolute",
-              top: "60px",
-              left: "50px",
-              fontSize: "80px",
-              animation: "swordSlash 2s ease-in-out infinite",
-              opacity: 0.6,
-              filter: "drop-shadow(0 0 10px #4fc3f7)"
-            }}>⚔️</div>
+              top: 0,
+              left: "50%",
+              width: "120%",
+              height: "55%",
+              background: "linear-gradient(160deg, #4fc3f7, #0288d1)",
+              clipPath: "polygon(0 0, 100% 0, 85% 100%, 15% 100%)",
+              transform: "translateX(-50%) translateY(-100%)",
+              animation: "bannerDropTop 0.55s cubic-bezier(0.2,0.9,0.3,1) both",
+              boxShadow: "0 10px 40px rgba(79,195,247,0.5)"
+            }} />
             <div style={{
               position: "absolute",
-              top: "60px",
-              right: "50px",
-              fontSize: "80px",
-              animation: "swordSlash 2s ease-in-out infinite",
-              animationDelay: "1s",
-              opacity: 0.6,
-              filter: "drop-shadow(0 0 10px #ff5722)",
-              transform: "scaleX(-1)"
-            }}>⚔️</div>
-            
-            {/* Shield decorations */}
+              bottom: 0,
+              left: "50%",
+              width: "120%",
+              height: "55%",
+              background: "linear-gradient(-20deg, #ff5722, #d32f2f)",
+              clipPath: "polygon(15% 0, 85% 0, 100% 100%, 0 100%)",
+              transform: "translateX(-50%) translateY(100%)",
+              animation: "bannerDropBottom 0.55s cubic-bezier(0.2,0.9,0.3,1) both",
+              boxShadow: "0 -10px 40px rgba(255,87,34,0.5)"
+            }} />
+            {/* Shockwave at the clash point */}
             <div style={{
               position: "absolute",
-              bottom: "60px",
-              left: "80px",
-              fontSize: "60px",
-              animation: "shieldBounce 1.5s ease-in-out infinite",
-              opacity: 0.5,
-              filter: "drop-shadow(0 0 10px #9c27b0)"
-            }}>🛡️</div>
-            <div style={{
-              position: "absolute",
-              bottom: "60px",
-              right: "80px",
-              fontSize: "60px",
-              animation: "shieldBounce 1.5s ease-in-out infinite",
-              animationDelay: "0.5s",
-              opacity: 0.5,
-              filter: "drop-shadow(0 0 10px #4caf50)"
-            }}>🛡️</div>
-            
-            {/* Main title */}
-            <div style={{
-              fontSize: "56px",
-              fontWeight: "900",
-              background: "linear-gradient(135deg, #4fc3f7, #9c27b0, #ff5722)",
-              WebkitBackgroundClip: "text",
-              WebkitTextFillColor: "transparent",
-              backgroundClip: "text",
-              filter: "drop-shadow(0 0 20px rgba(255,255,255,0.5))",
-              animation: "titleBounce 1s ease-out",
-              letterSpacing: "6px",
-              textTransform: "uppercase",
-              zIndex: 10,
-              position: "relative",
-              textAlign: "center"
-            }}>
-              🎯 PLAYERS ARENA
+              width: "60px",
+              height: "60px",
+              borderRadius: "50%",
+              border: "3px solid #fff",
+              animation: "shockwaveRing 0.6s ease-out 0.5s both"
+            }} />
+            {/* Title letters drop in from alternating directions */}
+            <div style={{ position: "relative", zIndex: 10, display: "flex" }}>
+              {"PLAYERS ARENA".split("").map((ch, i) => (
+                <span key={i} style={{
+                  display: "inline-block",
+                  fontSize: "52px",
+                  fontWeight: 900,
+                  color: "#fff",
+                  textShadow: "0 0 20px rgba(255,255,255,0.8)",
+                  minWidth: ch === " " ? "20px" : undefined,
+                  animation: `${i % 2 === 0 ? "letterDrop0" : "letterDrop1"} 0.5s cubic-bezier(0.34,1.56,0.64,1) ${0.65 + i * 0.03}s both`
+                }}>{ch === " " ? "\u00A0" : ch}</span>
+              ))}
             </div>
-            
-            {/* Subtitle */}
+            {/* Subtitle typed out like a VN dialogue line */}
             <div style={{
-              fontSize: "20px",
-              color: "#aaa",
-              marginTop: "20px",
-              animation: "fadeIn 0.5s ease-out 0.5s forwards",
-              opacity: 0,
-              textAlign: "center"
+              position: "absolute",
+              bottom: "26px",
+              fontSize: "17px",
+              color: "#cfe8ff",
+              fontFamily: "monospace",
+              letterSpacing: "2px",
+              whiteSpace: "nowrap",
+              overflow: "hidden",
+              borderRight: "2px solid #4fc3f7",
+              width: 0,
+              animation: "typeReveal 0.6s steps(22) 1.3s forwards"
             }}>
-              Last Brawler Standing Wins!
+              &gt; LAST BRAWLER STANDING WINS
             </div>
           </div>
         </div>
@@ -9453,114 +11652,93 @@ const ArenaPage: React.FC = () => {
         <div style={{
           position: "absolute",
           top: 0,
-          left: 0,
-          width: "calc(100vw - 400px)",
+          left: "320px",
+          width: "calc(100vw - 320px)",
           height: "100vh",
-          background: "linear-gradient(135deg, rgba(0,0,0,0.95), rgba(60,0,0,0.95))",
+          background: "radial-gradient(circle at 50% 40%, rgba(90,0,0,0.85), rgba(0,0,0,0.96) 75%)",
           zIndex: 10000,
           display: "flex",
           alignItems: "center",
           justifyContent: "center",
-          animation: "fadeIn 0.3s ease-out",
+          animation: "animeContainerBurst 0.55s cubic-bezier(0.2,0.9,0.3,1) both",
           overflow: "hidden",
           pointerEvents: "none"
         }}>
+          <div className="anime-impact-fx" aria-hidden="true" style={{ position: "absolute", inset: 0, pointerEvents: "none", overflow: "hidden" }}>
+            <div style={{ position: "absolute", top: "50%", left: "50%", width: "220vmax", height: "220vmax", marginLeft: "-110vmax", marginTop: "-110vmax", background: "repeating-conic-gradient(from 0deg, #ff174422 0deg 2deg, transparent 2deg 10deg)", animation: "speedLinesPulse 0.8s ease-out both", mixBlendMode: "screen" }} />
+            <div style={{ position: "absolute", top: 0, left: "-10%", width: "70%", height: "100%", background: "linear-gradient(100deg, transparent, #ff1744cc 45%, transparent 55%)", clipPath: "polygon(0 0, 70% 0, 55% 100%, 0% 100%)", animation: "animeBarLeft 0.65s cubic-bezier(0.16,1,0.3,1) both", filter: "blur(1px)" }} />
+            <div style={{ position: "absolute", top: 0, right: "-10%", width: "70%", height: "100%", background: "linear-gradient(260deg, transparent, #c62828cc 45%, transparent 55%)", clipPath: "polygon(30% 0, 100% 0, 100% 100%, 45% 100%)", animation: "animeBarRight 0.65s cubic-bezier(0.16,1,0.3,1) both", filter: "blur(1px)" }} />
+            <div style={{ position: "absolute", inset: 0, background: "#fff", animation: "animeFlashStrike 0.55s ease-out both", mixBlendMode: "overlay" }} />
+          </div>
           <div style={{
             position: "relative",
-            width: "700px",
-            height: "400px",
+            width: "640px",
+            height: "380px",
             display: "flex",
             flexDirection: "column",
             alignItems: "center",
             justifyContent: "center"
           }}>
-            {/* Giant skull behind boss */}
-            <div style={{
-              position: "absolute",
-              fontSize: "280px",
-              animation: "skullAppear 1.5s ease-out forwards",
-              opacity: 0,
-              filter: "drop-shadow(0 0 40px #ff1744)",
-              zIndex: 10005
-            }}>💀</div>
-            
-            {/* Danger symbols floating */}
-            {[...Array(6)].map((_, i) => (
-              <div key={`danger-${i}`} style={{
+            {/* Concentric danger rings */}
+            {[0, 1, 2].map((i) => (
+              <div key={`ring-${i}`} style={{
                 position: "absolute",
-                fontSize: "40px",
-                animation: `dangerFloat${i % 3} 2s ease-in-out infinite`,
-                animationDelay: `${i * 0.3}s`,
-                opacity: 0.6,
-                filter: "drop-shadow(0 0 10px #ff1744)",
-                left: `${50 + (i % 3) * 150}px`,
-                top: `${30 + Math.floor(i / 3) * 250}px`
-              }}>⚠️</div>
+                width: "80px",
+                height: "80px",
+                borderRadius: "50%",
+                border: "2px solid #ff1744",
+                boxShadow: "0 0 20px #ff1744",
+                animation: `dangerRingOut 1.4s ease-out ${i * 0.3}s infinite`
+              }} />
             ))}
-            
-            {/* Giant boss bubble */}
+            {/* A giant eye slowly opens */}
             <div style={{
-              position: "absolute",
-              width: "200px",
-              height: "200px",
+              position: "relative",
+              width: "220px",
+              height: "120px",
               borderRadius: "50%",
-              background: "radial-gradient(circle at 30% 30%, #ff1744, #c62828)",
-              boxShadow: "0 0 60px #ff1744, inset 0 0 40px rgba(0,0,0,0.3)",
-              animation: "bossGrow 1.5s ease-out forwards",
-              transform: "scale(0)",
-              zIndex: 5
-            }} />
-            
-            {/* Small bubbles around boss */}
-            {[...Array(12)].map((_, i) => {
-              const angle = (i * 30) * Math.PI / 180;
-              return (
-                <div key={`minion-${i}`} style={{
-                  position: "absolute",
-                  width: "40px",
-                  height: "40px",
-                  borderRadius: "50%",
-                  background: `radial-gradient(circle at 30% 30%, #64b5f6, #1976d2)`,
-                  boxShadow: "0 0 20px #64b5f6",
-                  animation: `minionOrbit 2s linear infinite`,
-                  animationDelay: `${i * 0.1}s`,
-                  transformOrigin: "center",
-                  left: `calc(50% + ${Math.cos(angle) * 180}px)`,
-                  top: `calc(50% + ${Math.sin(angle) * 180}px)`,
-                  opacity: 0.8
-                }} />
-              );
-            })}
-            
-            {/* Title */}
+              background: "radial-gradient(circle, #3a0000, #000)",
+              animation: "eyeOpen 0.9s cubic-bezier(0.2,0.9,0.3,1) 0.15s forwards",
+              boxShadow: "0 0 60px rgba(255,23,68,0.6)",
+              display: "flex",
+              alignItems: "center",
+              justifyContent: "center"
+            }}>
+              <div style={{
+                width: "70px",
+                height: "70px",
+                borderRadius: "50%",
+                background: "radial-gradient(circle at 35% 35%, #ff5252, #ff1744 60%, #4a0000)",
+                boxShadow: "0 0 40px #ff1744",
+                animation: "irisGlow 1.2s ease-in-out infinite"
+              }} />
+            </div>
+            {/* Title burns in */}
             <div style={{
-              fontSize: "56px",
-              fontWeight: "900",
-              background: "linear-gradient(135deg, #ff1744, #ff5252, #ff8a80)",
+              marginTop: "28px",
+              fontSize: "58px",
+              fontWeight: 900,
+              background: "linear-gradient(90deg, #4a0000, #ff1744, #ff8a80, #ff1744, #4a0000)",
+              backgroundSize: "200% 100%",
               WebkitBackgroundClip: "text",
               WebkitTextFillColor: "transparent",
               backgroundClip: "text",
-              filter: "drop-shadow(0 0 30px rgba(255,23,68,0.8))",
-              animation: "titleBounce 1s ease-out",
+              textShadow: "0 0 30px rgba(255,23,68,0.7)",
               letterSpacing: "6px",
               textTransform: "uppercase",
-              zIndex: 10,
-              position: "relative",
               textAlign: "center",
-              marginBottom: "250px"
-            }}>
-              👑 BOSS ARENA
-            </div>
-            
-            {/* Subtitle */}
-            <div style={{
-              fontSize: "20px",
-              color: "#aaa",
-              animation: "fadeIn 0.5s ease-out 0.5s forwards",
+              whiteSpace: "nowrap",
               opacity: 0,
-              textAlign: "center",
-              position: "relative",
-              zIndex: 10
+              animation: "emberReveal 0.9s ease-out 1.0s forwards, emberSweep 2.5s linear 1.9s infinite"
+            }}>
+              BOSS ARENA
+            </div>
+            <div style={{
+              fontSize: "18px",
+              color: "#ffb3b3",
+              marginTop: "12px",
+              opacity: 0,
+              animation: "fadeIn 0.5s ease-out 1.6s forwards"
             }}>
               Defeat the Mighty Boss!
             </div>
@@ -9572,120 +11750,111 @@ const ArenaPage: React.FC = () => {
         <div style={{
           position: "absolute",
           top: 0,
-          left: 0,
-          width: "calc(100vw - 400px)",
+          left: "320px",
+          width: "calc(100vw - 320px)",
           height: "100vh",
-          background: "linear-gradient(135deg, rgba(0,0,0,0.95), rgba(40,0,40,0.95))",
+          background: "radial-gradient(circle at 50% 40%, rgba(70,0,70,0.85), rgba(0,0,0,0.96) 75%)",
           zIndex: 10000,
           display: "flex",
           alignItems: "center",
           justifyContent: "center",
-          animation: "fadeIn 0.3s ease-out",
+          animation: "animeContainerBurst 0.55s cubic-bezier(0.2,0.9,0.3,1) both",
           overflow: "hidden",
           pointerEvents: "none"
         }}>
+          <div className="anime-impact-fx" aria-hidden="true" style={{ position: "absolute", inset: 0, pointerEvents: "none", overflow: "hidden" }}>
+            <div style={{ position: "absolute", top: "50%", left: "50%", width: "220vmax", height: "220vmax", marginLeft: "-110vmax", marginTop: "-110vmax", background: "repeating-conic-gradient(from 0deg, #9c27b022 0deg 2deg, transparent 2deg 10deg)", animation: "speedLinesPulse 0.8s ease-out both", mixBlendMode: "screen" }} />
+            <div style={{ position: "absolute", top: 0, left: "-10%", width: "70%", height: "100%", background: "linear-gradient(100deg, transparent, #9c27b0cc 45%, transparent 55%)", clipPath: "polygon(0 0, 70% 0, 55% 100%, 0% 100%)", animation: "animeBarLeft 0.65s cubic-bezier(0.16,1,0.3,1) both", filter: "blur(1px)" }} />
+            <div style={{ position: "absolute", top: 0, right: "-10%", width: "70%", height: "100%", background: "linear-gradient(260deg, transparent, #ff9800cc 45%, transparent 55%)", clipPath: "polygon(30% 0, 100% 0, 100% 100%, 45% 100%)", animation: "animeBarRight 0.65s cubic-bezier(0.16,1,0.3,1) both", filter: "blur(1px)" }} />
+            <div style={{ position: "absolute", inset: 0, background: "#fff", animation: "animeFlashStrike 0.55s ease-out both", mixBlendMode: "overlay" }} />
+          </div>
           <div style={{
             position: "relative",
-            width: "700px",
-            height: "400px",
+            width: "680px",
+            height: "320px",
             display: "flex",
-            flexDirection: "column",
             alignItems: "center",
             justifyContent: "center"
           }}>
-            {/* Chaotic bubbles fighting */}
-            {[...Array(15)].map((_, i) => (
-              <div key={`brawl-${i}`} style={{
+            {/* Targeting corner brackets converge */}
+            {[
+              { top: 0, left: 0, from: "translate(-300px,-300px)", edges: { borderTop: true, borderLeft: true } },
+              { top: 0, right: 0, from: "translate(300px,-300px)", edges: { borderTop: true, borderRight: true } },
+              { bottom: 0, right: 0, from: "translate(300px,300px)", edges: { borderBottom: true, borderRight: true } },
+              { bottom: 0, left: 0, from: "translate(-300px,300px)", edges: { borderBottom: true, borderLeft: true } },
+            ].map((c, i) => (
+              <div key={i} style={{
                 position: "absolute",
-                width: `${40 + (i % 3) * 20}px`,
-                height: `${40 + (i % 3) * 20}px`,
-                borderRadius: "50%",
-                background: `radial-gradient(circle at 30% 30%, ${['#9c27b0', '#ff9800', '#4caf50', '#f44336', '#2196f3'][i % 5]}, ${['#6a1b9a', '#f57c00', '#388e3c', '#c62828', '#1565c0'][i % 5]})`,
-                boxShadow: `0 0 25px ${['#9c27b0', '#ff9800', '#4caf50', '#f44336', '#2196f3'][i % 5]}`,
-                animation: `brawlChaos${i % 4} ${1.5 + (i % 3) * 0.5}s ease-in-out infinite`,
-                animationDelay: `${i * 0.05}s`,
-                opacity: 0.85
+                top: c.top,
+                left: c.left,
+                right: c.right,
+                bottom: c.bottom,
+                width: "50px",
+                height: "50px",
+                borderTop: c.edges.borderTop ? "5px solid #ff9800" : undefined,
+                borderLeft: c.edges.borderLeft ? "5px solid #ff9800" : undefined,
+                borderRight: c.edges.borderRight ? "5px solid #ff9800" : undefined,
+                borderBottom: c.edges.borderBottom ? "5px solid #ff9800" : undefined,
+                filter: "drop-shadow(0 0 10px #ff9800)",
+                transform: c.from,
+                animation: `bracketConverge 0.5s cubic-bezier(0.2,0.9,0.3,1) ${i * 0.05}s forwards`
               }} />
             ))}
-            
-            {/* Impact effects */}
-            {[...Array(8)].map((_, i) => (
-              <div key={`impact-${i}`} style={{
-                position: "absolute",
-                width: "60px",
-                height: "60px",
-                borderRadius: "50%",
-                border: "3px solid #fff",
-                animation: `impactWave ${1 + i * 0.1}s ease-out infinite`,
-                animationDelay: `${i * 0.2}s`,
-                opacity: 0
-              }} />
-            ))}
-            
-            {/* Fighting fists */}
+            {/* Oversized VS stamp behind the title */}
             <div style={{
               position: "absolute",
-              top: "50px",
-              left: "60px",
-              fontSize: "70px",
-              animation: "fistPunch 1s ease-in-out infinite",
-              filter: "drop-shadow(0 0 15px #ff9800)"
-            }}>👊</div>
-            <div style={{
-              position: "absolute",
-              top: "50px",
-              right: "60px",
-              fontSize: "70px",
-              animation: "fistPunch 1s ease-in-out infinite",
-              animationDelay: "0.5s",
-              filter: "drop-shadow(0 0 15px #9c27b0)",
-              transform: "scaleX(-1)"
-            }}>👊</div>
-            
-            {/* Explosion effects */}
-            {[...Array(4)].map((_, i) => (
-              <div key={`explosion-${i}`} style={{
-                position: "absolute",
-                fontSize: "50px",
-                animation: `explosionPop 1.5s ease-out infinite`,
-                animationDelay: `${i * 0.4}s`,
-                opacity: 0,
-                left: `${100 + i * 130}px`,
-                top: `${150 + (i % 2) * 100}px`
-              }}>💥</div>
-            ))}
-            
+              fontSize: "140px",
+              fontWeight: 900,
+              color: "rgba(156,39,176,0.18)",
+              transform: "rotate(-12deg) scale(2)",
+              letterSpacing: "4px",
+              whiteSpace: "nowrap",
+              animation: "stampFade 0.6s ease-out 0.3s both"
+            }}>VS</div>
+            {/* Confetti shards bursting out */}
+            {[...Array(14)].map((_, i) => {
+              const a = (i * 25.7) * Math.PI / 180;
+              const dist = 140 + (i % 3) * 40;
+              return (
+                <div key={`confetti-${i}`} style={{
+                  position: "absolute",
+                  width: "10px",
+                  height: "16px",
+                  background: i % 2 ? "#ff9800" : "#9c27b0",
+                  transform: `translate(${Math.cos(a) * dist}px, ${Math.sin(a) * dist}px) rotate(${i * 40}deg)`,
+                  animation: `confettiBurst 0.7s ease-out ${0.5 + i * 0.02}s both`,
+                  opacity: 0
+                }} />
+              );
+            })}
             {/* Title */}
             <div style={{
-              fontSize: "56px",
-              fontWeight: "900",
-              background: "linear-gradient(135deg, #9c27b0, #ff9800, #f44336)",
+              position: "relative",
+              zIndex: 10,
+              fontSize: "52px",
+              fontWeight: 900,
+              background: "linear-gradient(135deg, #e040fb, #ff9800, #f44336)",
               WebkitBackgroundClip: "text",
               WebkitTextFillColor: "transparent",
               backgroundClip: "text",
-              filter: "drop-shadow(0 0 30px rgba(156,39,176,0.8))",
-              animation: "titleBounce 1s ease-out",
-              letterSpacing: "6px",
+              textShadow: "0 0 30px rgba(156,39,176,0.8)",
+              letterSpacing: "5px",
               textTransform: "uppercase",
-              zIndex: 10,
-              position: "relative",
-              textAlign: "center"
-            }}>
-              🥊 BRAWL ARENA
-            </div>
-            
-            {/* Subtitle */}
-            <div style={{
-              fontSize: "20px",
-              color: "#aaa",
-              marginTop: "20px",
-              animation: "fadeIn 0.5s ease-out 0.5s forwards",
-              opacity: 0,
               textAlign: "center",
-              zIndex: 10,
-              position: "relative"
+              whiteSpace: "nowrap",
+              animation: "popSettle 0.45s cubic-bezier(0.34,1.56,0.64,1) 0.55s both"
             }}>
-              {brawlMode === "1v1" ? "Epic solo Battle!" : "Solo vs Squad Mayhem!"}
+              BRAWL ARENA
+            </div>
+            <div style={{
+              position: "absolute",
+              bottom: "6px",
+              fontSize: "18px",
+              color: "#eac4ff",
+              opacity: 0,
+              animation: "fadeIn 0.5s ease-out 0.95s forwards"
+            }}>
+              {brawlMode === "1v1" ? "Epic Solo Battle!" : "Solo vs Squad Mayhem!"}
             </div>
           </div>
         </div>
@@ -9696,132 +11865,91 @@ const ArenaPage: React.FC = () => {
         <div style={{
           position: "absolute",
           top: 0,
-          left: 0,
-          width: "calc(100vw - 400px)", // Exclude right sidebar
+          left: "320px",
+          width: "calc(100vw - 320px)",
           height: "100vh",
-          background: "rgba(0,0,20,0.95)",
+          background: "radial-gradient(circle at 50% 50%, rgba(0,50,70,0.85), rgba(0,0,20,0.96) 75%)",
           zIndex: 10000,
           display: "flex",
           alignItems: "center",
           justifyContent: "center",
-          animation: "fadeIn 0.3s ease-out",
+          animation: "animeContainerBurst 0.5s cubic-bezier(0.2,0.9,0.3,1) both",
           overflow: "hidden",
           pointerEvents: "none"
         }}>
+          <div className="anime-impact-fx" aria-hidden="true" style={{ position: "absolute", inset: 0, pointerEvents: "none", overflow: "hidden" }}>
+            <div style={{ position: "absolute", top: "50%", left: "50%", width: "220vmax", height: "220vmax", marginLeft: "-110vmax", marginTop: "-110vmax", background: "repeating-conic-gradient(from 0deg, #00f5ff22 0deg 2deg, transparent 2deg 10deg)", animation: "speedLinesPulse 0.7s ease-out both", mixBlendMode: "screen" }} />
+            <div style={{ position: "absolute", top: 0, left: "-10%", width: "70%", height: "100%", background: "linear-gradient(100deg, transparent, #00f5ffcc 45%, transparent 55%)", clipPath: "polygon(0 0, 70% 0, 55% 100%, 0% 100%)", animation: "animeBarLeft 0.6s cubic-bezier(0.16,1,0.3,1) both", filter: "blur(1px)" }} />
+            <div style={{ position: "absolute", top: 0, right: "-10%", width: "70%", height: "100%", background: "linear-gradient(260deg, transparent, #0080ffcc 45%, transparent 55%)", clipPath: "polygon(30% 0, 100% 0, 100% 100%, 45% 100%)", animation: "animeBarRight 0.6s cubic-bezier(0.16,1,0.3,1) both", filter: "blur(1px)" }} />
+            <div style={{ position: "absolute", inset: 0, background: "#fff", animation: "animeFlashStrike 0.5s ease-out both", mixBlendMode: "overlay" }} />
+          </div>
           <div style={{
             position: "relative",
-            width: "500px",
+            width: "560px",
             height: "300px",
             display: "flex",
             flexDirection: "column",
             alignItems: "center",
-            justifyContent: "center",
-            perspective: "1000px"
+            justifyContent: "center"
           }}>
-            {/* Lightning strikes */}
-            {[...Array(5)].map((_, i) => (
-              <svg key={`lightning-${i}`} style={{
-                position: "absolute",
-                top: "-40px",
-                left: `${60 + i * 90}px`,
-                width: "35px",
-                height: "250px",
-                animation: `lightning ${0.8 + i * 0.2}s ease-in-out infinite`,
-                animationDelay: `${i * 0.15}s`,
-                filter: "drop-shadow(0 0 10px #00f5ff) drop-shadow(0 0 20px #0080ff)",
-                opacity: 0
-              }}>
-                <path
-                  d={`M 18 0 L 14 70 L 22 70 L 10 130 L 14 130 L 5 250 L 18 105 L 11 105 L 23 45 L 16 45 Z`}
-                  fill="#00f5ff"
-                  stroke="#ffffff"
-                  strokeWidth="1"
-                />
-              </svg>
-            ))}
-            
-            {/* Ground impact cracks */}
-            {[...Array(5)].map((_, i) => (
-              <div key={`crack-${i}`} style={{
-                position: "absolute",
-                bottom: "0",
-                left: `${50 + i * 100}px`,
-                width: "3px",
-                height: "80px",
-                background: "linear-gradient(180deg, #00f5ff, transparent)",
-                boxShadow: "0 0 15px #00f5ff",
-                animation: `crackExpand ${1 + i * 0.1}s ease-out forwards`,
-                transformOrigin: "top center",
-                opacity: 0
-              }} />
-            ))}
-            
-            {/* Electric ground glow */}
+            {/* Reactor core spinning up */}
+            <svg viewBox="0 0 100 100" style={{
+              position: "absolute",
+              width: "160px",
+              height: "160px",
+              animation: "hexSpin 1.4s linear infinite",
+              filter: "drop-shadow(0 0 16px #00f5ff)"
+            }}>
+              <polygon points="50,5 90,27.5 90,72.5 50,95 10,72.5 10,27.5" fill="none" stroke="#00f5ff" strokeWidth="4" />
+            </svg>
             <div style={{
               position: "absolute",
-              bottom: "0",
-              width: "100%",
-              height: "6px",
-              background: "linear-gradient(90deg, transparent, #00f5ff, #00d4ff, #00f5ff, transparent)",
-              boxShadow: "0 0 30px #00f5ff, 0 -5px 50px #0080ff",
-              animation: "electricPulse 0.8s ease-in-out infinite"
+              width: "60px",
+              height: "60px",
+              borderRadius: "50%",
+              background: "radial-gradient(circle, #e0feff, #00f5ff 55%, #004a66)",
+              boxShadow: "0 0 40px #00f5ff",
+              animation: "coreThrob 0.7s ease-in-out infinite"
             }} />
-            
-            {/* Electric ripple effect */}
-            {[...Array(3)].map((_, i) => (
-              <div key={`ripple-${i}`} style={{
+            {/* Charge rings expanding outward */}
+            {[0, 1, 2].map((i) => (
+              <div key={`charge-${i}`} style={{
                 position: "absolute",
-                bottom: "0",
-                left: "50%",
-                width: "50px",
-                height: "50px",
+                width: "60px",
+                height: "60px",
                 borderRadius: "50%",
                 border: "2px solid #00f5ff",
-                transform: "translateX(-50%)",
-                animation: `ripple ${1.5}s ease-out infinite`,
-                animationDelay: `${i * 0.5}s`,
-                opacity: 0
+                animation: `chargeRingOut 1.1s ease-out ${i * 0.35}s infinite`
               }} />
             ))}
-            
-            {/* Main text */}
-            <div style={{
-              fontSize: "48px",
-              fontWeight: "900",
-              background: "linear-gradient(135deg, #00f5ff, #00d4ff, #0080ff)",
-              WebkitBackgroundClip: "text",
-              WebkitTextFillColor: "transparent",
-              backgroundClip: "text",
-              textShadow: "0 0 40px rgba(0,245,255,0.8)",
-              animation: "textPulse3D 1s ease-in-out infinite",
-              transform: "rotateX(10deg)",
-              letterSpacing: "4px",
-              textTransform: "uppercase",
-              zIndex: 10,
-              position: "relative",
-              marginBottom: "30px",
-              textAlign: "center",
-              whiteSpace: "nowrap"
-            }}>
-              ⚡ POWERS ENABLED
-            </div>
-            
-            {/* Electric particles */}
-            {[...Array(40)].map((_, i) => (
-              <div key={i} style={{
+            {/* Title revealed by a scanning laser line */}
+            <div style={{ position: "relative", marginTop: "140px", overflow: "hidden" }}>
+              <div style={{
+                fontSize: "46px",
+                fontWeight: 900,
+                background: "linear-gradient(135deg, #e0feff, #00d4ff, #0080ff)",
+                WebkitBackgroundClip: "text",
+                WebkitTextFillColor: "transparent",
+                backgroundClip: "text",
+                textShadow: "0 0 30px rgba(0,245,255,0.8)",
+                letterSpacing: "4px",
+                textTransform: "uppercase",
+                whiteSpace: "nowrap",
+                clipPath: "inset(0 100% 0 0)",
+                animation: "scanReveal 0.5s steps(20) 0.6s forwards, animeTextGlitch 1.3s ease-in-out 1.1s infinite"
+              }}>
+                POWERS ENABLED
+              </div>
+              <div style={{
                 position: "absolute",
+                top: 0,
+                bottom: 0,
                 width: "3px",
-                height: "3px",
-                background: "#00f5ff",
-                borderRadius: "50%",
-                top: "50%",
-                left: "50%",
-                animation: `particle${i % 4} 2s ease-out infinite`,
-                animationDelay: `${i * 0.03}s`,
-                opacity: 0,
-                boxShadow: "0 0 15px #00f5ff"
+                background: "#fff",
+                boxShadow: "0 0 14px #fff, 0 0 30px #00f5ff",
+                animation: "scanBarMove 0.5s linear 0.6s forwards"
               }} />
-            ))}
+            </div>
           </div>
         </div>
       )}
@@ -9831,132 +11959,94 @@ const ArenaPage: React.FC = () => {
         <div style={{
           position: "absolute",
           top: 0,
-          left: 0,
-          width: "calc(100vw - 400px)",
+          left: "320px",
+          width: "calc(100vw - 320px)",
           height: "100vh",
-          background: "rgba(20,0,0,0.95)",
+          background: "radial-gradient(circle at 50% 50%, rgba(80,0,0,0.85), rgba(20,0,0,0.96) 75%)",
           zIndex: 10000,
           display: "flex",
           alignItems: "center",
           justifyContent: "center",
-          animation: "fadeIn 0.3s ease-out",
+          animation: "animeContainerBurst 0.5s cubic-bezier(0.2,0.9,0.3,1) both",
           overflow: "hidden",
           pointerEvents: "none"
         }}>
+          <div className="anime-impact-fx" aria-hidden="true" style={{ position: "absolute", inset: 0, pointerEvents: "none", overflow: "hidden" }}>
+            <div style={{ position: "absolute", top: "50%", left: "50%", width: "220vmax", height: "220vmax", marginLeft: "-110vmax", marginTop: "-110vmax", background: "repeating-conic-gradient(from 0deg, #ff000022 0deg 2deg, transparent 2deg 10deg)", animation: "speedLinesPulse 0.7s ease-out both", mixBlendMode: "screen" }} />
+            <div style={{ position: "absolute", top: 0, left: "-10%", width: "70%", height: "100%", background: "linear-gradient(100deg, transparent, #ff0000cc 45%, transparent 55%)", clipPath: "polygon(0 0, 70% 0, 55% 100%, 0% 100%)", animation: "animeBarLeft 0.6s cubic-bezier(0.16,1,0.3,1) both", filter: "blur(1px)" }} />
+            <div style={{ position: "absolute", top: 0, right: "-10%", width: "70%", height: "100%", background: "linear-gradient(260deg, transparent, #ff4500cc 45%, transparent 55%)", clipPath: "polygon(30% 0, 100% 0, 100% 100%, 45% 100%)", animation: "animeBarRight 0.6s cubic-bezier(0.16,1,0.3,1) both", filter: "blur(1px)" }} />
+            <div style={{ position: "absolute", inset: 0, background: "#fff", animation: "animeFlashStrike 0.5s ease-out both", mixBlendMode: "overlay" }} />
+          </div>
           <div style={{
             position: "relative",
-            width: "500px",
+            width: "560px",
             height: "300px",
             display: "flex",
             flexDirection: "column",
             alignItems: "center",
-            justifyContent: "center",
-            perspective: "1000px"
+            justifyContent: "center"
           }}>
-            {/* Fire strikes */}
-            {[...Array(5)].map((_, i) => (
-              <svg key={`fire-strike-${i}`} style={{
-                position: "absolute",
-                top: "-40px",
-                left: `${60 + i * 90}px`,
-                width: "35px",
-                height: "250px",
-                animation: `lightning ${0.8 + i * 0.2}s ease-in-out infinite`,
-                animationDelay: `${i * 0.15}s`,
-                filter: "drop-shadow(0 0 10px #ff0000) drop-shadow(0 0 20px #ff4500)",
-                opacity: 0
-              }}>
-                <path
-                  d={`M 18 0 L 14 70 L 22 70 L 10 130 L 14 130 L 5 250 L 18 105 L 11 105 L 23 45 L 16 45 Z`}
-                  fill="#ff0000"
-                  stroke="#ff4500"
-                  strokeWidth="1"
-                />
-              </svg>
-            ))}
-            
-            {/* Ground fire cracks */}
-            {[...Array(5)].map((_, i) => (
-              <div key={`crack-${i}`} style={{
-                position: "absolute",
-                bottom: "0",
-                left: `${50 + i * 100}px`,
-                width: "3px",
-                height: "80px",
-                background: "linear-gradient(180deg, #ff0000, transparent)",
-                boxShadow: "0 0 15px #ff0000",
-                animation: `crackExpand ${1 + i * 0.1}s ease-out forwards`,
-                transformOrigin: "top center",
-                opacity: 0
-              }} />
-            ))}
-            
-            {/* Fire ground glow */}
-            <div style={{
+            {/* Rune seal spins and fades as it shatters */}
+            <svg viewBox="0 0 100 100" style={{
               position: "absolute",
-              bottom: "0",
-              width: "100%",
-              height: "6px",
-              background: "linear-gradient(90deg, transparent, #ff0000, #ff4500, #ff0000, transparent)",
-              boxShadow: "0 0 30px #ff0000, 0 -5px 50px #ff4500",
-              animation: "electricPulse 0.8s ease-in-out infinite"
-            }} />
-            
-            {/* Fire ripple effect */}
-            {[...Array(3)].map((_, i) => (
-              <div key={`ripple-${i}`} style={{
-                position: "absolute",
-                bottom: "0",
-                left: "50%",
-                width: "50px",
-                height: "50px",
-                borderRadius: "50%",
-                border: "2px solid #ff0000",
-                transform: "translateX(-50%)",
-                animation: `ripple ${1.5}s ease-out infinite`,
-                animationDelay: `${i * 0.5}s`,
-                opacity: 0
-              }} />
-            ))}
-            
-            {/* Main text */}
+              width: "180px",
+              height: "180px",
+              animation: "runeSpinFade 0.8s ease-in both",
+              filter: "drop-shadow(0 0 16px #ff4500)"
+            }}>
+              <circle cx="50" cy="50" r="42" fill="none" stroke="#ff4500" strokeWidth="2" />
+              <circle cx="50" cy="50" r="34" fill="none" stroke="#ff8800" strokeWidth="1.5" strokeDasharray="4 3" />
+              {[...Array(12)].map((_, i) => {
+                const a = (i * 30) * Math.PI / 180;
+                const x1 = 50 + Math.cos(a) * 42, y1 = 50 + Math.sin(a) * 42;
+                const x2 = 50 + Math.cos(a) * 36, y2 = 50 + Math.sin(a) * 36;
+                return <line key={i} x1={x1} y1={y1} x2={x2} y2={y2} stroke="#ff4500" strokeWidth="2" />;
+              })}
+            </svg>
+            {/* Shards flying outward from the shattered seal */}
+            {[...Array(12)].map((_, i) => {
+              const a = (i * 30) * Math.PI / 180;
+              const dist = 130 + (i % 3) * 30;
+              return (
+                <div key={`rune-shard-${i}`} style={{
+                  position: "absolute",
+                  width: "16px",
+                  height: "16px",
+                  background: "linear-gradient(135deg, #ffcc80, #ff0000)",
+                  clipPath: "polygon(50% 0%, 100% 100%, 0% 100%)",
+                  transform: `translate(${Math.cos(a) * dist}px, ${Math.sin(a) * dist}px) rotate(${i * 45}deg)`,
+                  animation: `runeShatter 0.6s ease-out ${0.35 + i * 0.02}s both`,
+                  opacity: 0
+                }} />
+              );
+            })}
+            {/* Title emerges from the shatter */}
             <div style={{
-              fontSize: "48px",
-              fontWeight: "900",
-              background: "linear-gradient(135deg, #ff0000, #ff4500, #ff6600)",
+              fontSize: "42px",
+              fontWeight: 900,
+              background: "linear-gradient(135deg, #fff2cc, #ff4500, #ff0000)",
               WebkitBackgroundClip: "text",
               WebkitTextFillColor: "transparent",
               backgroundClip: "text",
-              textShadow: "0 0 40px rgba(255,0,0,0.8)",
-              animation: "textPulse3D 1s ease-in-out infinite",
-              transform: "rotateX(10deg)",
-              letterSpacing: "4px",
+              textShadow: "0 0 30px rgba(255,0,0,0.85)",
+              letterSpacing: "3px",
               textTransform: "uppercase",
-              zIndex: 10,
-              position: "relative",
-              marginBottom: "30px",
               textAlign: "center",
-              whiteSpace: "nowrap"
+              whiteSpace: "nowrap",
+              opacity: 0,
+              animation: "emberReveal 0.6s ease-out 0.5s forwards, heatFlicker 0.6s ease-in-out 1.1s infinite"
             }}>
-              👹 POWERS ENABLED FOR FINAL BOSS
+              FINAL BOSS POWERS
             </div>
-            
-            {/* Fire particles */}
-            {[...Array(40)].map((_, i) => (
-              <div key={i} style={{
-                position: "absolute",
-                width: "3px",
-                height: "3px",
-                background: i % 2 === 0 ? "#ff0000" : "#ff4500",
-                borderRadius: "50%",
-                top: "50%",
-                left: "50%",
-                animation: `particle${i % 4} 2s ease-out infinite`,
-                animationDelay: `${i * 0.03}s`,
-                opacity: 0,
-                boxShadow: "0 0 15px currentColor"
-              }} />
-            ))}
+            <div style={{
+              fontSize: "16px",
+              color: "#ffb380",
+              marginTop: "10px",
+              opacity: 0,
+              animation: "fadeIn 0.5s ease-out 0.9s forwards"
+            }}>
+              The Boss Grows Stronger!
+            </div>
           </div>
         </div>
       )}
@@ -9966,54 +12056,160 @@ const ArenaPage: React.FC = () => {
           from { opacity: 0; }
           to { opacity: 1; }
         }
-        @keyframes spikeRise {
-          0% { transform: translateY(200px) scaleY(0); opacity: 0; }
-          60% { transform: translateY(0) scaleY(1.2); opacity: 1; }
-          100% { transform: translateY(0) scaleY(1); opacity: 1; }
+        @keyframes animeContainerBurst {
+          0% { opacity: 0; transform: scale(1.3); filter: brightness(4) contrast(1.4); }
+          20% { opacity: 1; filter: brightness(2) contrast(1.2); }
+          100% { opacity: 1; transform: scale(1); filter: brightness(1) contrast(1); }
         }
-        @keyframes crackGlow {
-          0%, 100% { opacity: 0.6; transform: scaleX(1); }
-          50% { opacity: 1; transform: scaleX(1.1); }
+        @keyframes speedLinesPulse {
+          0% { opacity: 0; transform: scale(0.6) rotate(0deg); }
+          30% { opacity: 1; }
+          100% { opacity: 0; transform: scale(1.15) rotate(8deg); }
         }
-        @keyframes lightning {
-          0%, 90%, 100% { opacity: 0; }
-          10%, 15%, 20%, 25% { opacity: 1; }
-          12%, 17%, 22% { opacity: 0.3; }
+        @keyframes animeBarLeft {
+          0% { transform: translateX(-120%) skewX(-8deg); opacity: 0; }
+          55% { transform: translateX(0%) skewX(-8deg); opacity: 1; }
+          100% { transform: translateX(-8%) skewX(-8deg); opacity: 0.85; }
         }
-        @keyframes crackExpand {
-          0% { transform: scaleY(0); opacity: 0; }
-          50% { opacity: 1; }
-          100% { transform: scaleY(1); opacity: 0.8; }
+        @keyframes animeBarRight {
+          0% { transform: translateX(120%) skewX(-8deg); opacity: 0; }
+          55% { transform: translateX(0%) skewX(-8deg); opacity: 1; }
+          100% { transform: translateX(8%) skewX(-8deg); opacity: 0.85; }
         }
-        @keyframes electricPulse {
-          0%, 100% { opacity: 0.6; }
-          50% { opacity: 1; box-shadow: 0 0 40px #00f5ff, 0 -5px 60px #0080ff; }
+        @keyframes animeFlashStrike {
+          0% { opacity: 0.9; }
+          12% { opacity: 0; }
+          100% { opacity: 0; }
         }
-        @keyframes ripple {
-          0% { transform: translateX(-50%) scale(0); opacity: 1; }
-          100% { transform: translateX(-50%) scale(6); opacity: 0; }
+        @keyframes bladeWipe {
+          0% { transform: translateY(-50%) rotate(-8deg) scaleX(0); opacity: 0; }
+          10% { opacity: 1; }
+          100% { transform: translateY(-50%) rotate(-8deg) scaleX(1); opacity: 1; }
+        }
+        @keyframes shardFall {
+          0% { opacity: 1; transform: translateY(-50%) translate(0,0) rotate(0deg) scale(1); }
+          100% { opacity: 0; transform: translateY(-50%) translate(0, 120px) rotate(200deg) scale(0.4); }
+        }
+        @keyframes textWipeReveal {
+          from { clip-path: inset(0 100% 0 0); }
+          to { clip-path: inset(0 0% 0 0); }
+        }
+        @keyframes irisSpinOpen {
+          0% { transform: scale(0.2) rotate(0deg); opacity: 0.9; }
+          70% { transform: scale(1.3) rotate(200deg); opacity: 0.5; }
+          100% { transform: scale(2.2) rotate(260deg); opacity: 0; }
+        }
+        @keyframes ringPulseOut {
+          0% { transform: scale(0.3); opacity: 1; }
+          100% { transform: scale(2.4); opacity: 0; }
+        }
+        @keyframes sparkTwinkle {
+          0% { opacity: 0; }
+          15% { opacity: 1; }
+          100% { opacity: 0; }
+        }
+        @keyframes stampDown {
+          0% { transform: scale(2) rotate(-4deg); opacity: 0; }
+          60% { transform: scale(0.95) rotate(1deg); opacity: 1; }
+          100% { transform: scale(1) rotate(0deg); opacity: 1; }
+        }
+        @keyframes bannerDropTop {
+          0% { transform: translateX(-50%) translateY(-100%); }
+          60% { transform: translateX(-50%) translateY(6%); }
+          100% { transform: translateX(-50%) translateY(0%); }
+        }
+        @keyframes bannerDropBottom {
+          0% { transform: translateX(-50%) translateY(100%); }
+          60% { transform: translateX(-50%) translateY(-6%); }
+          100% { transform: translateX(-50%) translateY(0%); }
+        }
+        @keyframes shockwaveRing {
+          0% { transform: scale(0.3); opacity: 1; }
+          100% { transform: scale(10); opacity: 0; }
+        }
+        @keyframes letterDrop0 {
+          0% { transform: translateY(-60px) rotate(-20deg); opacity: 0; }
+          100% { transform: translateY(0) rotate(0deg); opacity: 1; }
+        }
+        @keyframes letterDrop1 {
+          0% { transform: translateY(60px) rotate(20deg); opacity: 0; }
+          100% { transform: translateY(0) rotate(0deg); opacity: 1; }
+        }
+        @keyframes typeReveal {
+          to { width: 320px; }
+        }
+        @keyframes eyeOpen {
+          0% { clip-path: ellipse(50% 0% at 50% 50%); }
+          100% { clip-path: ellipse(50% 50% at 50% 50%); }
+        }
+        @keyframes irisGlow {
+          0%, 100% { transform: scale(1); }
+          50% { transform: scale(1.12); }
+        }
+        @keyframes dangerRingOut {
+          0% { transform: scale(0.5); opacity: 0.8; }
+          100% { transform: scale(6); opacity: 0; }
+        }
+        @keyframes emberReveal {
+          from { opacity: 0; transform: scale(1.3); filter: blur(8px); }
+          to { opacity: 1; transform: scale(1); filter: blur(0); }
+        }
+        @keyframes emberSweep {
+          0% { background-position: 200% 0; }
+          100% { background-position: -200% 0; }
+        }
+        @keyframes bracketConverge {
+          from { opacity: 0; }
+          to { opacity: 1; transform: translate(0,0); }
+        }
+        @keyframes stampFade {
+          from { opacity: 0; transform: rotate(-12deg) scale(3); }
+          to { opacity: 1; transform: rotate(-12deg) scale(2); }
+        }
+        @keyframes confettiBurst {
+          0% { opacity: 1; }
+          100% { opacity: 0; }
+        }
+        @keyframes popSettle {
+          0% { transform: scale(0); opacity: 0; }
+          70% { transform: scale(1.15); opacity: 1; }
+          100% { transform: scale(1); opacity: 1; }
+        }
+        @keyframes hexSpin {
+          0% { transform: rotate(0deg) scale(0.6); opacity: 0.3; }
+          100% { transform: rotate(360deg) scale(1); opacity: 1; }
+        }
+        @keyframes coreThrob {
+          0%, 100% { transform: scale(1); }
+          50% { transform: scale(1.25); }
+        }
+        @keyframes chargeRingOut {
+          0% { transform: scale(1); opacity: 0.9; }
+          100% { transform: scale(5); opacity: 0; }
+        }
+        @keyframes scanReveal {
+          to { clip-path: inset(0 0% 0 0); }
+        }
+        @keyframes scanBarMove {
+          from { left: 0; }
+          to { left: 100%; }
+        }
+        @keyframes runeSpinFade {
+          0% { transform: rotate(0deg) scale(1); opacity: 1; }
+          100% { transform: rotate(140deg) scale(1.4); opacity: 0; }
+        }
+        @keyframes runeShatter {
+          0% { opacity: 1; }
+          100% { opacity: 0; }
+        }
+        @keyframes heatFlicker {
+          0%, 100% { filter: brightness(1); }
+          50% { filter: brightness(1.3); }
         }
         @keyframes textPulse3D {
           0%, 100% { transform: scale(1) rotateX(10deg); }
           50% { transform: scale(1.05) rotateX(15deg); }
         }
-        @keyframes particle0 {
-          0% { transform: translate(0, 0) scale(1); opacity: 1; }
-          100% { transform: translate(${Math.random() * 300 - 150}px, ${Math.random() * 300 - 150}px) scale(0); opacity: 0; }
-        }
-        @keyframes particle1 {
-          0% { transform: translate(0, 0) scale(1); opacity: 1; }
-          100% { transform: translate(${Math.random() * 300 - 150}px, ${Math.random() * 300 - 150}px) scale(0); opacity: 0; }
-        }
-        @keyframes particle2 {
-          0% { transform: translate(0, 0) scale(1); opacity: 1; }
-          100% { transform: translate(${Math.random() * 300 - 150}px, ${Math.random() * 300 - 150}px) scale(0); opacity: 0; }
-        }
-        @keyframes particle3 {
-          0% { transform: translate(0, 0) scale(1); opacity: 1; }
-          100% { transform: translate(${Math.random() * 300 - 150}px, ${Math.random() * 300 - 150}px) scale(0); opacity: 0; }
-        }
-        
         @keyframes flameFlicker {
           0% { transform: scale(1, 1) translateY(0); opacity: 0; }
           10% { opacity: 1; }
@@ -10083,126 +12279,52 @@ const ArenaPage: React.FC = () => {
           0% { opacity: 1; transform: translate(-50%, 0) scaleY(1); }
           100% { opacity: 0; transform: translate(-50%, 0) scaleY(0.2); }
         }
-        @keyframes bladeRotate {
-          0% { transform: rotate(0deg); }
-          100% { transform: rotate(360deg); }
+        @keyframes animeTitleImpact {
+          0% { transform: scale(3) skewX(15deg); opacity: 0; filter: blur(14px); }
+          35% { transform: scale(0.9) skewX(-6deg); opacity: 1; filter: blur(0px); }
+          45% { transform: scale(1.08) skewX(4deg) translateX(-6px); }
+          55% { transform: scale(1) skewX(-3deg) translateX(6px); }
+          65% { transform: scale(1) skewX(2deg) translateX(-3px); }
+          100% { transform: scale(1) skewX(0deg) translateX(0); opacity: 1; }
         }
-        @keyframes bladeSpark {
-          0% { opacity: 1; transform: translate(-50%, -50%) translateY(0) scale(1); }
-          100% { opacity: 0; transform: translate(-50%, -50%) translateY(-100px) scale(0); }
-        }
-        @keyframes titleBounce {
-          0% { transform: scale(0.3) translateY(-100px); opacity: 0; }
-          60% { transform: scale(1.1) translateY(0); opacity: 1; }
-          100% { transform: scale(1) translateY(0); opacity: 1; }
-        }
-        @keyframes bubbleCollide0 {
-          0%, 100% { transform: translate(0, 0); }
-          50% { transform: translate(-40px, -30px); }
-        }
-        @keyframes bubbleCollide1 {
-          0%, 100% { transform: translate(0, 0); }
-          50% { transform: translate(40px, 30px); }
-        }
-        @keyframes bubbleCollide2 {
-          0%, 100% { transform: translate(0, 0); }
-          50% { transform: translate(-30px, 40px); }
-        }
-        @keyframes bubbleCollide3 {
-          0%, 100% { transform: translate(0, 0); }
-          50% { transform: translate(30px, -40px); }
-        }
-        @keyframes bossGrow {
-          0% { transform: scale(0); opacity: 0; }
-          50% { transform: scale(1.2); opacity: 1; }
-          100% { transform: scale(1); opacity: 1; }
-        }
-        @keyframes minionOrbit {
-          0% { transform: rotate(0deg) translateX(0) scale(1); opacity: 0; }
-          20% { opacity: 0.8; }
-          100% { transform: rotate(360deg) translateX(0) scale(1); opacity: 0.8; }
-        }
-        @keyframes brawlChaos0 {
-          0%, 100% { transform: translate(0, 0) rotate(0deg); }
-          25% { transform: translate(-60px, -40px) rotate(90deg); }
-          50% { transform: translate(60px, 40px) rotate(180deg); }
-          75% { transform: translate(-40px, 60px) rotate(270deg); }
-        }
-        @keyframes brawlChaos1 {
-          0%, 100% { transform: translate(0, 0) rotate(0deg); }
-          25% { transform: translate(60px, -60px) rotate(-90deg); }
-          50% { transform: translate(-60px, 60px) rotate(-180deg); }
-          75% { transform: translate(60px, 60px) rotate(-270deg); }
-        }
-        @keyframes brawlChaos2 {
-          0%, 100% { transform: translate(0, 0) rotate(0deg); }
-          25% { transform: translate(-50px, 50px) rotate(120deg); }
-          50% { transform: translate(50px, -50px) rotate(240deg); }
-          75% { transform: translate(-50px, -50px) rotate(360deg); }
-        }
-        @keyframes brawlChaos3 {
-          0%, 100% { transform: translate(0, 0) rotate(0deg); }
-          25% { transform: translate(40px, 60px) rotate(-120deg); }
-          50% { transform: translate(-40px, -60px) rotate(-240deg); }
-          75% { transform: translate(60px, -40px) rotate(-360deg); }
-        }
-        @keyframes impactWave {
-          0% { transform: scale(0.5); opacity: 1; }
-          100% { transform: scale(2); opacity: 0; }
-        }
-        @keyframes swordSlash {
-          0%, 100% { transform: translateX(0) rotate(0deg); }
-          50% { transform: translateX(-10px) rotate(-15deg); }
-        }
-        @keyframes shieldBounce {
-          0%, 100% { transform: translateY(0) scale(1); }
-          50% { transform: translateY(-15px) scale(1.1); }
-        }
-        @keyframes skullAppear {
-          0% { transform: scale(0) rotate(-30deg); opacity: 0; }
-          50% { transform: scale(1.2) rotate(5deg); opacity: 0.4; }
-          100% { transform: scale(1) rotate(0deg); opacity: 0.3; }
-        }
-        @keyframes dangerFloat0 {
-          0%, 100% { transform: translateY(0) rotate(0deg); }
-          50% { transform: translateY(-20px) rotate(10deg); }
-        }
-        @keyframes dangerFloat1 {
-          0%, 100% { transform: translateY(0) rotate(0deg); }
-          50% { transform: translateY(-25px) rotate(-10deg); }
-        }
-        @keyframes dangerFloat2 {
-          0%, 100% { transform: translateY(0) rotate(0deg); }
-          50% { transform: translateY(-15px) rotate(15deg); }
-        }
-        @keyframes fistPunch {
-          0%, 100% { transform: translateX(0) scale(1); }
-          50% { transform: translateX(20px) scale(1.2); }
-        }
-        @keyframes explosionPop {
-          0% { transform: scale(0) rotate(0deg); opacity: 0; }
-          50% { transform: scale(1.5) rotate(180deg); opacity: 1; }
-          100% { transform: scale(0.5) rotate(360deg); opacity: 0; }
+        @keyframes animeTextGlitch {
+          0%, 100% { transform: translateX(0); filter: brightness(1) drop-shadow(0 0 6px currentColor); }
+          2% { transform: translateX(-2px); }
+          4% { transform: translateX(2px); }
+          6% { transform: translateX(0); }
+          50% { filter: brightness(1.5) drop-shadow(0 0 20px currentColor); }
         }
       `}</style>
       
-      <div style={{ flex: 1, display: "flex", height: "100vh", alignItems: "center", justifyContent: "center", gap: 0, position: "relative" }}>
+      <div className="arena-layout" style={{ flex: 1, display: "flex", height: "100vh", alignItems: "center", justifyContent: "flex-start", gap: 0, position: "relative" }}>
+        {/* Centers the arena in all space left over once the leaderboard is pinned to the viewport edge. */}
+        <div className="arena-playfield-wrap" style={{ flex: 1, minWidth: 0, height: "100%", display: "flex", alignItems: "center", justifyContent: "center" }}>
         {/* Arena Frame */}
         <div
           ref={arenaRef}
-          className={`arena ${winner || winnersList || winnersImages ? "arena-blur" : ""}`}
+          className={`arena arena-playfield shape-${arenaShape}`}
           style={{
+            "--arena-glow-primary": arenaGlowPalette[0],
+            "--arena-glow-secondary": arenaGlowPalette[1],
             position: "relative",
-            width: "60vw",
-            height: "100vh",
+            width: isSquareArenaShape(arenaShape) ? "min(62vw, calc(100vh - 36px))" : "64vw",
+            height: isSquareArenaShape(arenaShape) ? "auto" : "calc(100vh - 28px)",
             maxWidth: "920px",
             maxHeight: "none",
-            ...(arenaShape === ARENA_SHAPES.CIRCLE ? { aspectRatio: "1 / 1" } : {}),
-            background: canvasBackgroundColor,
+            ...(isSquareArenaShape(arenaShape) ? { aspectRatio: "1 / 1" } : {}),
+            background: "transparent",
             overflow: "hidden",
             ...getArenaShapeStyle(),
-          }}
+          } as React.CSSProperties}
         >
+            {/* Theme background layer — visual only, clipped by the arena shape */}
+            <div aria-hidden="true" style={{
+              position: "absolute",
+              inset: 0,
+              zIndex: 0,
+              background: `linear-gradient(rgba(3, 7, 16, 0.28), rgba(3, 7, 16, 0.58)), ${activeArenaTheme.inside}d9`,
+              pointerEvents: "none",
+            }} />
             <div style={{
               position: "absolute",
               ...(arenaShape === ARENA_SHAPES.CIRCLE ? {
@@ -10232,6 +12354,231 @@ const ArenaPage: React.FC = () => {
 
                 {/* Power Pickups Rendering */}
                 {/* Only show pickups if: enabled AND (no timer OR timer has expired) */}
+                {/* ===== Arena Zones (spec section 6) — soft areas under the bubbles ===== */}
+                {zonesEnabled && arenaZones.map((z) => {
+                  const meta = ARENA_ZONE_INFO[z.kind];
+                  const remaining = Math.max(0, z.expiresAt - Date.now()) / 1000;
+                  const opacity = remaining < 2 ? 0.55 * (remaining / 2) : 0.55;
+                  return (
+                    <div
+                      key={`arena-zone-${z.id}`}
+                      style={{
+                        position: "absolute", left: z.x, top: z.y,
+                        width: z.r * 2, height: z.r * 2,
+                        transform: "translate(-50%, -50%)", zIndex: 60,
+                        pointerEvents: "none", opacity, borderRadius: "50%",
+                        background: `radial-gradient(circle, ${meta.color}55, ${meta.color}11 70%, transparent)`,
+                        border: `2px dashed ${meta.color}aa`,
+                        display: "flex", alignItems: "center", justifyContent: "center",
+                        fontSize: Math.max(14, z.r * 0.4),
+                      }}
+                    >
+                      <span style={{ opacity: 0.55 }}>{meta.icon}</span>
+                    </div>
+                  );
+                })}
+
+                {/* ===== Blockades (spec section 5) — physical objects ===== */}
+                {blockadesEnabled && arenaBlockades.map((b) => {
+                  const meta = ARENA_BLOCKADE_INFO[b.kind];
+                  const isCircle = b.shape === "circle";
+                  const w = isCircle ? b.r * 2 : b.w;
+                  const h = isCircle ? b.r * 2 : b.h;
+                  // Invisible walls stay near-transparent until a bubble discovers them.
+                  const hidden = b.kind === "invisible_wall" && !b.active;
+                  const laserOff = b.kind === "laser_wall" && !b.active;
+                  let opacity = hidden ? 0.06 : laserOff ? 0.2 : 1;
+                  if (b.fading && b.expiresAt) {
+                    opacity *= Math.max(0, (b.expiresAt - Date.now()) / 1200);
+                  }
+                  const isWall = BLOCKADE_WALL_KINDS.includes(b.kind);
+                  if (isWall) {
+                    // Plain wall blockades render as a row of 2-3 bricks, no box/border behind them.
+                    const sand = BLOCKADE_SAND_KINDS.includes(b.kind);
+                    const brickFace = sand
+                      ? "linear-gradient(165deg, #d7b685, #b4915c 55%, #8f7140)"
+                      : "linear-gradient(165deg, #b3503f, #8f3a2c 55%, #6b2a1f)";
+                    const mortar = sand ? "#6e5a38" : "#4a1f17";
+                    const count = 2 + (b.id % 2); // deterministic 2 or 3 bricks per blockade
+                    const gap = Math.max(1, w * 0.03);
+                    return (
+                      <div
+                        key={`arena-blockade-${b.id}`}
+                        style={{
+                          position: "absolute", left: b.x, top: b.y,
+                          width: w, height: h,
+                          transform: `translate(-50%, -50%) rotate(${b.angle || 0}rad)`,
+                          zIndex: b.solid ? 110 : 70,
+                          pointerEvents: "none", opacity,
+                          display: "flex", gap,
+                          filter: `drop-shadow(0 0 6px ${meta.color}aa)`,
+                        }}
+                      >
+                        {Array.from({ length: count }).map((_, i) => (
+                          <div key={i} style={{
+                            flex: 1, height: "100%", borderRadius: 2,
+                            background: brickFace,
+                            border: `1px solid ${mortar}`,
+                            boxShadow: "inset 0 -2px 2px rgba(0,0,0,0.35)",
+                          }} />
+                        ))}
+                        {b.kind === "breakable" && b.hp !== undefined && (
+                          <span style={{
+                            position: "absolute", bottom: -14, left: "50%", transform: "translateX(-50%)",
+                            fontSize: 9, fontWeight: 800, color: meta.color, textShadow: "0 1px 2px #000",
+                          }}>{b.hp}</span>
+                        )}
+                      </div>
+                    );
+                  }
+                  // Hazard / mechanism kinds keep their icon, glow only — no boxed panel.
+                  return (
+                    <div
+                      key={`arena-blockade-${b.id}`}
+                      style={{
+                        position: "absolute", left: b.x, top: b.y,
+                        width: w, height: h,
+                        transform: `translate(-50%, -50%) rotate(${b.angle || 0}rad)`,
+                        zIndex: b.solid ? 110 : 70,
+                        pointerEvents: "none", opacity,
+                        display: "flex", alignItems: "center", justifyContent: "center",
+                        fontSize: Math.max(10, Math.min(w, h) * 0.6),
+                        filter: `drop-shadow(0 0 8px ${meta.color}cc)`,
+                      }}
+                    >
+                      <span style={{ opacity: 0.9 }}>{meta.icon}</span>
+                    </div>
+                  );
+                })}
+
+                {/* ===== Meteors (spec section 7) ===== */}
+                {eventsEnabled && arenaMeteors.map((m) => (
+                  <div
+                    key={`arena-meteor-${m.id}`}
+                    style={{
+                      position: "absolute", left: m.x, top: m.y,
+                      width: m.r * 2, height: m.r * 2,
+                      transform: "translate(-50%, -50%)", zIndex: 1160,
+                      pointerEvents: "none", borderRadius: "50%",
+                      background: "radial-gradient(circle, #fde68a, #f97316 60%, #7c2d12)",
+                      boxShadow: "0 0 16px #f97316, 0 0 30px rgba(249,115,22,0.6)",
+                      display: "flex", alignItems: "center", justifyContent: "center",
+                      fontSize: 14,
+                    }}
+                  >☄️</div>
+                ))}
+
+                {/* ===== Falling swords (Double Damage event) — decorative rain ===== */}
+                {eventsEnabled && arenaSwords.map((s) => (
+                  <div
+                    key={`arena-sword-${s.id}`}
+                    style={{
+                      position: "absolute", left: s.x, top: s.y,
+                      transform: `translate(-50%, -50%) rotate(${s.rot}deg)`, zIndex: 1160,
+                      pointerEvents: "none", fontSize: 24,
+                      filter: "drop-shadow(0 0 10px #ef4444) drop-shadow(0 0 18px rgba(239,68,68,0.6))",
+                    }}
+                  >⚔️</div>
+                ))}
+
+                {/* Shrinking Arena: shows where the contracted boundary now sits. */}
+                {eventsEnabled && arenaShrinkPad > 0 && (
+                  <div style={{
+                    position: "absolute", inset: arenaShrinkPad,
+                    zIndex: 1140, pointerEvents: "none",
+                    border: "2px dashed rgba(251,113,133,0.75)",
+                    borderRadius: 12,
+                    boxShadow: "inset 0 0 40px rgba(251,113,133,0.25)",
+                  }} />
+                )}
+
+                {/* ===== Event banner (spec section 7): warning then active ===== */}
+                {eventsEnabled && activeEvent && (() => {
+                  const meta = ARENA_EVENT_INFO[activeEvent.kind];
+                  const warning = activeEvent.phase === "warning";
+                  return (
+                    <div style={{
+                      position: "absolute", top: 18, left: "50%",
+                      transform: "translateX(-50%)", zIndex: 1400,
+                      pointerEvents: "none", display: "flex", alignItems: "center", gap: 8,
+                      padding: "7px 16px", borderRadius: 999,
+                      background: warning ? "rgba(20,10,0,0.85)" : "rgba(10,6,24,0.85)",
+                      border: `2px solid ${meta.color}`,
+                      boxShadow: `0 0 20px ${meta.color}99`,
+                      color: "#fff", fontWeight: 800, fontSize: 13, whiteSpace: "nowrap",
+                      animation: warning ? "pulse 0.7s infinite" : undefined,
+                    }}>
+                      <span style={{ fontSize: 17 }}>{warning ? "⚠️" : meta.icon}</span>
+                      <span>{warning ? `INCOMING: ${activeEvent.label}` : activeEvent.label}</span>
+                    </div>
+                  );
+                })()}
+
+                {/* Active-event screen tint: confirms the effect is live even when the */}
+                {/* modifier itself (damage/gravity/speed) has no other visible marker. */}
+                {eventsEnabled && activeEvent && activeEvent.phase === "active" && (() => {
+                  const meta = ARENA_EVENT_INFO[activeEvent.kind];
+                  return (
+                    <div style={{
+                      position: "absolute", inset: 0, zIndex: 1130, pointerEvents: "none",
+                      boxShadow: `inset 0 0 60px ${meta.color}66, inset 0 0 14px ${meta.color}aa`,
+                      border: `3px solid ${meta.color}88`, borderRadius: 10,
+                      animation: "pulse 1.4s ease-in-out infinite",
+                    }} />
+                  );
+                })()}
+
+                {/* ===== Arena Pickups (spec section 4) — DOM overlay, visual only ===== */}
+                {/* Always render: event-spawned pickups (health_rain/item_chaos) must stay
+                    visible even when the separate "Pickups" toggle is off; the array itself
+                    only contains system pickups when that toggle is on (spawn is gated). */}
+                {arenaPickups.map((p) => {
+                  const meta = ARENA_PICKUP_INFO[p.kind];
+                  const remaining = Math.max(0, p.expiresAt - Date.now()) / 1000;
+                  const opacity = remaining < 1.5 ? 0.25 + 0.5 * (remaining / 1.5) : 1;
+                  return (
+                    <div
+                      key={`arena-pickup-${p.id}`}
+                      style={{
+                        position: "absolute", left: p.x, top: p.y,
+                        transform: "translate(-50%, -50%)", zIndex: 1150,
+                        pointerEvents: "none", opacity,
+                      }}
+                    >
+                      <div style={{
+                        width: ARENA_PICKUP_RADIUS * 2, height: ARENA_PICKUP_RADIUS * 2,
+                        borderRadius: "50%",
+                        background: `radial-gradient(circle, ${meta.color}, rgba(0,0,0,0.35))`,
+                        border: `2px solid ${meta.color}`,
+                        display: "flex", alignItems: "center", justifyContent: "center",
+                        fontSize: 18,
+                        boxShadow: `0 0 14px ${meta.color}`,
+                        animation: "pulse 1.2s infinite",
+                      }}>
+                        {meta.icon}
+                      </div>
+                    </div>
+                  );
+                })}
+                {/* Floating collection labels */}
+                {pickupFx.map((fx) => {
+                  const age = (Date.now() - fx.createdAt) / 900;
+                  return (
+                    <div
+                      key={`pickup-fx-${fx.id}`}
+                      style={{
+                        position: "absolute", left: fx.x, top: fx.y - age * 26,
+                        transform: "translate(-50%, -50%)", zIndex: 1200,
+                        pointerEvents: "none", opacity: Math.max(0, 1 - age),
+                        fontSize: 13, fontWeight: 800, color: fx.color,
+                        whiteSpace: "nowrap", textShadow: "0 0 5px #000, 0 1px 2px #000",
+                      }}
+                    >
+                      {fx.text}
+                    </div>
+                  );
+                })}
+
                 {arenaType === ARENA_TYPES.BOSS && playerPowersEnabled && (playerPowersAutoEnableTime === 0 || playerPowersAutoEnabledRef.current) && playerPowerMode === "pickup" && powerPickups.map((pickup) => {
                   const powerInfo = SUPER_BUBBLE_TYPES[pickup.type];
                   const remainingTime = Math.max(0, pickup.expiresAt - Date.now()) / 1000;
@@ -10338,20 +12685,20 @@ const ArenaPage: React.FC = () => {
                     const w = spikeSize;
                     const h = spikeSize;
                     
-                    // Use normal vector for rotation, add 90 degrees clockwise
-                    const angle = Math.atan2(spike.ny, spike.nx) * (180 / Math.PI) + 90;
+                    // Anchor the flat base to the exact boundary and point the tip inward.
+                    const angle = Math.atan2(-spike.nx, spike.ny) * (180 / Math.PI);
                     
                     // Single upward-pointing triangle, rotated by normal
-                    const points = `${w / 2},0 0,${h} ${w},${h}`;
+                    const points = `0,0 ${w},0 ${w / 2},${h}`;
                     
                     const style: React.CSSProperties = {
                       position: "absolute",
                       pointerEvents: "none",
                       zIndex: 120,
-                      left: spike.x,
+                      left: spike.x - w / 2,
                       top: spike.y,
-                      transform: `translate(-50%, -50%) rotate(${angle}deg)`,
-                      transformOrigin: "center center"
+                      transform: `rotate(${angle}deg)`,
+                      transformOrigin: "50% 0"
                     };
                     
                     return (
@@ -10365,19 +12712,19 @@ const ArenaPage: React.FC = () => {
                 {/* Blades are now drawn on canvas for perfect sync - no SVG elements needed */}
               </div>
             </div>
+            <svg className="arena-shape-outline" viewBox="0 0 100 100" preserveAspectRatio="none" aria-hidden="true">
+              {renderArenaOutline()}
+            </svg>
+            {(winner || winnersList || winnersImages) && <WinnerOverlay winnerBubble={winner ?? undefined} winners={winnersList ?? undefined} winnersImgs={winnersImages ?? undefined} bubbleCount={countRef.current} />}
+        </div>
         </div>
 
-        {/* Leaderboard next to arena */}
+        {/* Leaderboard next to arena — pinned flush to the right edge */}
         <div
-          className="leaderboard"
+          className="leaderboard bb-arena-leaderboard"
           style={{
-            width: arenaType === ARENA_TYPES.NORMAL ? 200 : 220,
+            width: arenaType === ARENA_TYPES.NORMAL ? 180 : 190,
             height: "95vh",
-            // maxHeight: "none",
-            // minWidth: 220,
-            // maxWidth: 360,
-            background: "rgba(8,8,8,0.95)",
-            borderLeft: "3px solid rgba(61,59,59,0.55)",
             boxSizing: "border-box",
             overflow: "hidden",
           }}
@@ -10385,15 +12732,18 @@ const ArenaPage: React.FC = () => {
           {arenaType === ARENA_TYPES.BOSS ? renderBossVersusCard() : arenaType === ARENA_TYPES.BRAWL ? renderBrawlVersusCard() : renderLeaderboardNormal()}
         </div>
 
-        {/* Winner Overlay - positioned within arena+leaderboard container */}
-        {(winner || winnersList || winnersImages) && <WinnerOverlay winnerBubble={winner ?? undefined} winners={winnersList ?? undefined} winnersImgs={winnersImages ?? undefined} bubbleCount={countRef.current} />}
       </div>
 
       {/* right controls sidebar */}
-      <div style={{ width: 320, minWidth: 280, display: "flex", flexDirection: "column", alignItems: "center", marginTop: 18, position: "relative", zIndex: 41 }}>
-        <div style={{ width: "100%", maxWidth: 320, background: "rgba(24,24,24,0.95)", borderRadius: 12, padding: 16, boxSizing: "border-box", maxHeight: "88vh", overflowY: "auto" }}>
+      <div className="arena-controls-shell" style={{ width: 320, minWidth: 280, display: "flex", flexDirection: "column", alignItems: "center", marginTop: 12, position: "relative", zIndex: 41 }}>
+        <div className="arena-controls-panel" style={{ width: "100%", maxWidth: 320, padding: "16px 10px", boxSizing: "border-box", maxHeight: "calc(100vh - 24px)", overflowY: "auto" }}>
+          {/* Brand header — top-left of the gameplay page */}
+          <div style={{ display: "flex", alignItems: "baseline", gap: 6, marginBottom: 14 }}>
+            <span style={{ fontSize: 15, fontWeight: 800, letterSpacing: 0.5, color: "#fff" }}>BUBBLE<span style={{ color: "#00e0ff" }}>BASH</span></span>
+            <span style={{ fontSize: 11, fontWeight: 700, letterSpacing: 1, color: "#8fb3ff" }}>ARENA</span>
+          </div>
           {/* Action Buttons */}
-          <div style={{ marginBottom: 16 }}>
+          <div className="arena-action-bar" style={{ marginBottom: 16 }}>
             <button onClick={handlePlay} disabled={isRunning} style={{ width: "100%", height: 44, marginBottom: 8, fontSize: 16, fontWeight: "bold" }}>
               ▶ {isRunning ? "Playing..." : "Play"}
             </button>
@@ -10522,7 +12872,6 @@ const ArenaPage: React.FC = () => {
                       style={{ width: "100%", padding: "6px", borderRadius: 4, background: "rgba(255,255,255,0.1)", color: "#fff", border: "1px solid rgba(255,255,255,0.2)" }} 
                       placeholder="0 = disabled"
                     />
-                    <div style={{ color: "#999", fontSize: 11, marginTop: 4 }}>If timer is set, spikes appear only after this delay. 0 = show from start</div>
                   </div>
                   <div style={{ marginBottom: 10 }}>
                     <label style={{ color: "#ccc", fontSize: 13, display: "block", marginBottom: 6 }}>
@@ -10538,7 +12887,6 @@ const ArenaPage: React.FC = () => {
                       style={{ width: "100%", padding: "6px", borderRadius: 4, background: "rgba(255,255,255,0.1)", color: "#fff", border: "1px solid rgba(255,255,255,0.2)" }} 
                       placeholder="0 = forever"
                     />
-                    <div style={{ color: "#999", fontSize: 11, marginTop: 4 }}>How long spikes stay active after enabling. 0 = stay forever</div>
                   </div>
                   {spikeEnabled && (
                     <>
@@ -10621,7 +12969,6 @@ const ArenaPage: React.FC = () => {
                       style={{ width: "100%", padding: "6px", borderRadius: 4, background: "rgba(255,255,255,0.1)", color: "#fff", border: "1px solid rgba(255,255,255,0.2)" }} 
                       placeholder="0 = start immediately"
                     />
-                    <div style={{ color: "#999", fontSize: 11, marginTop: 4 }}>If timer is set, blades activate after this delay. 0 = active from start</div>
                   </div>
                   <div style={{ marginBottom: 10 }}>
                     <label style={{ color: "#ccc", fontSize: 13, display: "block", marginBottom: 6 }}>
@@ -10637,14 +12984,10 @@ const ArenaPage: React.FC = () => {
                       style={{ width: "100%", padding: "6px", borderRadius: 4, background: "rgba(255,255,255,0.1)", color: "#fff", border: "1px solid rgba(255,255,255,0.2)" }} 
                       placeholder="0 = forever"
                     />
-                    <div style={{ color: "#999", fontSize: 11, marginTop: 4 }}>How long blades stay active after enabling. 0 = stay forever</div>
                   </div>
                   {bladeEnabled && (
                     <div style={{ marginTop: 10 }}>
                       <div style={{ color: "#aaa", fontSize: 12, marginBottom: 6 }}>Assign Blades to Bubbles:</div>
-                      <div style={{ color: "#999", fontSize: 11, marginBottom: 8 }}>
-                        Click on bubble names below to toggle their blade on/off. Blades scale with bubble size.
-                      </div>
                       <div style={{ display: "flex", gap: 6, flexWrap: "wrap", marginBottom: 8 }}>
                         <button
                           onClick={() => setBladeAssignments(new Set())}
@@ -10759,10 +13102,6 @@ const ArenaPage: React.FC = () => {
                           })}
                         </div>
                       </div>
-                      
-                      <div style={{ color: "#999", fontSize: 10, marginTop: 8 }}>
-                        Assigned: {bladeAssignments.size} bubbles | Blade-to-blade: sparks only (no damage) | Blade-to-normal: 5 HP
-                      </div>
                     </div>
                   )}
                 </div>
@@ -10815,13 +13154,32 @@ const ArenaPage: React.FC = () => {
                   onChange={(e) => setBounceDeviation(parseFloat(e.target.value))} 
                   style={{ width: "100%", cursor: "pointer" }} 
                 />
-                <div style={{ color: "#999", fontSize: 10, marginTop: 2 }}>Random angle added to bubble bounces (all arenas)</div>
               </div>
 
               {/* NORMAL ARENA CONFIG */}
               {arenaType === ARENA_TYPES.NORMAL && (
                 <>
                   <div style={{ color: "#aaa", fontSize: 12, fontWeight: 600, marginBottom: 10 }}>Players Arena Damage:</div>
+                  <div style={{ marginBottom: 12, padding: 8, border: "1px solid rgba(0,217,255,0.25)", borderRadius: 6 }}>
+                    <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 8 }}>
+                      <span style={{ color: "#00d9ff", fontSize: 12, fontWeight: 700 }}>Player Powers</span>
+                      <ToggleButton on={normalPowersEnabled} onToggle={() => setNormalPowersEnabled((enabled) => !enabled)} label={normalPowersEnabled ? "ON" : "OFF"} />
+                    </div>
+                    {normalPowersEnabled && (
+                      <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(34px, 1fr))", gap: 5 }}>
+                        {AVAILABLE_POWER_KEYS.map((powerKey) => (
+                          <PowerChips key={powerKey} powerKey={powerKey} active={!!selectedNormalPowers[powerKey]} accent="#00d9ff"
+                            onToggle={() => setSelectedNormalPowers((powers) => ({ ...powers, [powerKey]: !powers[powerKey] }))} />
+                        ))}
+                      </div>
+                    )}
+                    {normalPowersEnabled && (Object.keys(selectedNormalPowers) as (keyof typeof SUPER_BUBBLE_TYPES)[]).filter((key) => selectedNormalPowers[key]).map((powerKey) => (
+                      <label key={`normal-damage-${powerKey}`} title={String(SUPER_BUBBLE_TYPES[powerKey].name)} style={{ display: "flex", alignItems: "center", gap: 6, marginTop: 6, color: "#bbb", fontSize: 10 }}>
+                        {powerBadge(SUPER_BUBBLE_TYPES[powerKey].name)}
+                        <input type="number" min={0} max={50} step={0.5} value={normalPowerDamages[powerKey] ?? 5} onChange={(event) => setNormalPowerDamages((damages) => ({ ...damages, [powerKey]: parseFloat(event.target.value) || 0 }))} style={{ width: 52, padding: "3px 4px" }} />
+                      </label>
+                    ))}
+                  </div>
                   
                   {/* Bubble Collision */}
                   <div style={{ marginBottom: 10 }}>
@@ -10879,6 +13237,30 @@ const ArenaPage: React.FC = () => {
                   {/* Superbubble Health & Collision */}
                   <div style={{ marginBottom: 12, paddingBottom: 12, borderBottom: "1px solid rgba(255,255,255,0.1)" }}>
                     <div style={{ color: "#f44336", fontSize: 12, fontWeight: 600, marginBottom: 10 }}>🔴 Superbubble Configuration:</div>
+
+                    <label style={{ color: "#ccc", fontSize: 13, display: "block", marginBottom: 10 }}>
+                      Boss Bubble Image:
+                      <select
+                        value={selectedSuperbubbleImageRef.current}
+                        onChange={(e) => {
+                          const imageName = e.target.value;
+                          selectedSuperbubbleImageRef.current = imageName;
+                          const imageSrc = imageName ? `http://localhost:5000/api/superbubbleimg/${encodeURIComponent(imageName)}` : "";
+                          if (superBubbleRef.current && !isRunning) {
+                            superBubbleRef.current.imgSrc = imageSrc;
+                            superBubbleRef.current.name = imageName.replace(/\.(png|jpg|jpeg|gif|bmp|webp|svg)$/i, "") || "Boss";
+                            setSuperBubbleSnapshot({ ...superBubbleRef.current });
+                            if (imageSrc) preloadImage(imageSrc).catch(() => {});
+                          }
+                          setSuperbubbleImageOptions((options) => [...options]);
+                        }}
+                        disabled={isRunning || superbubbleImageOptions.length === 0}
+                        style={{ display: "block", width: "100%", marginTop: 6, padding: "7px 8px", background: "rgba(0,0,0,0.3)", color: "#fff", border: "1px solid rgba(255,255,255,0.18)", borderRadius: 6 }}
+                      >
+                        {superbubbleImageOptions.length === 0 && <option value="">Loading boss images...</option>}
+                        {superbubbleImageOptions.map((image) => <option key={image} value={image}>{image}</option>)}
+                      </select>
+                    </label>
                     
                     {/* Superbubble Health */}
                     <div style={{ marginBottom: 10 }}>
@@ -10894,7 +13276,6 @@ const ArenaPage: React.FC = () => {
                         onChange={(e) => setBossSuperbubbleHealth(parseFloat(e.target.value))} 
                         style={{ width: "100%", cursor: "pointer" }} 
                       />
-                      <div style={{ color: "#999", fontSize: 10, marginTop: 2 }}>Initial health for superbubble</div>
                     </div>
 
                     {/* Collision Damage (applies to both) */}
@@ -10911,15 +13292,14 @@ const ArenaPage: React.FC = () => {
                         onChange={(e) => setBossCollisionDamage(parseFloat(e.target.value))} 
                         style={{ width: "100%", cursor: "pointer" }} 
                       />
-                      <div style={{ color: "#999", fontSize: 10, marginTop: 2 }}>Damage to BOTH when superbubble & normal collide</div>
                     </div>
 
                     {/* Super Power Damages */}
                     <div style={{ color: "#aaa", fontSize: 11, marginBottom: 6 }}>Superbubble Power Damages:</div>
-                    <div style={{ display: "grid", gridTemplateColumns: "repeat(2, 1fr)", gap: 8 }}>
-                      {(Object.keys(SUPER_BUBBLE_TYPES) as (keyof typeof SUPER_BUBBLE_TYPES)[]).map((powerKey) => (
-                        <div key={powerKey} style={{ background: "rgba(0,0,0,0.2)", padding: "6px 8px", borderRadius: 4 }}>
-                          <div style={{ color: "#999", fontSize: 10, marginBottom: 3 }}>{SUPER_BUBBLE_TYPES[powerKey].name}</div>
+                    <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(60px, 1fr))", gap: 8 }}>
+                      {AVAILABLE_POWER_KEYS.map((powerKey) => (
+                        <div key={powerKey} title={String(SUPER_BUBBLE_TYPES[powerKey].name)} style={{ background: "rgba(0,0,0,0.2)", padding: "6px 8px", borderRadius: 4 }}>
+                          <div style={{ color: "#999", fontSize: 10, marginBottom: 3 }}>{powerBadge(SUPER_BUBBLE_TYPES[powerKey].name)}</div>
                           <input 
                             type="number" 
                             min={0} 
@@ -10992,17 +13372,16 @@ const ArenaPage: React.FC = () => {
                         onChange={(e) => setBossSuperbubbleBladeDamage(parseFloat(e.target.value))} 
                         style={{ width: "100%", cursor: "pointer" }} 
                       />
-                      <div style={{ color: "#999", fontSize: 10, marginTop: 2 }}>Damage dealt to superbubble by normal bubbles' blades</div>
                     </div>
 
                     {/* Normal Power Damages */}
                     {playerPowersEnabled && (
                       <>
                         <div style={{ color: "#aaa", fontSize: 11, marginBottom: 6 }}>Normal Bubble Power Damages:</div>
-                        <div style={{ display: "grid", gridTemplateColumns: "repeat(2, 1fr)", gap: 8 }}>
+                        <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(60px, 1fr))", gap: 8 }}>
                           {(Object.keys(selectedPlayerPowers) as (keyof typeof SUPER_BUBBLE_TYPES)[]).filter(k => selectedPlayerPowers[k]).map((powerKey) => (
-                            <div key={powerKey} style={{ background: "rgba(0,0,0,0.2)", padding: "6px 8px", borderRadius: 4 }}>
-                              <div style={{ color: "#999", fontSize: 10, marginBottom: 3 }}>{SUPER_BUBBLE_TYPES[powerKey].name}</div>
+                            <div key={powerKey} title={String(SUPER_BUBBLE_TYPES[powerKey].name)} style={{ background: "rgba(0,0,0,0.2)", padding: "6px 8px", borderRadius: 4 }}>
+                              <div style={{ color: "#999", fontSize: 10, marginBottom: 3 }}>{powerBadge(SUPER_BUBBLE_TYPES[powerKey].name)}</div>
                               <input 
                                 type="number" 
                                 min={0} 
@@ -11086,10 +13465,10 @@ const ArenaPage: React.FC = () => {
                   {brawlPowersEnabled && (
                     <>
                       <div style={{ color: "#aaa", fontSize: 11, marginBottom: 6 }}>Power Damages (All Available):</div>
-                      <div style={{ display: "grid", gridTemplateColumns: "repeat(2, 1fr)", gap: 8 }}>
-                        {(Object.keys(SUPER_BUBBLE_TYPES) as (keyof typeof SUPER_BUBBLE_TYPES)[]).map((powerKey) => (
-                          <div key={powerKey} style={{ background: "rgba(0,0,0,0.2)", padding: "6px 8px", borderRadius: 4 }}>
-                            <div style={{ color: "#999", fontSize: 10, marginBottom: 3 }}>{SUPER_BUBBLE_TYPES[powerKey].name}</div>
+                      <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(60px, 1fr))", gap: 8 }}>
+                        {AVAILABLE_POWER_KEYS.map((powerKey) => (
+                          <div key={powerKey} title={String(SUPER_BUBBLE_TYPES[powerKey].name)} style={{ background: "rgba(0,0,0,0.2)", padding: "6px 8px", borderRadius: 4 }}>
+                            <div style={{ color: "#999", fontSize: 10, marginBottom: 3 }}>{powerBadge(SUPER_BUBBLE_TYPES[powerKey].name)}</div>
                             <input 
                               type="number" 
                               min={0} 
@@ -11222,7 +13601,6 @@ const ArenaPage: React.FC = () => {
                       onChange={(e) => setHpValue(parseInt(e.target.value))} 
                       style={{ width: "100%", cursor: "pointer" }} 
                     />
-                    <div style={{ color: "#999", fontSize: 11, marginTop: 4 }}>Value to set for selected bubble(s)</div>
                   </div>
                 )}
 
@@ -11490,6 +13868,262 @@ const ArenaPage: React.FC = () => {
               )}
             </div>
 
+            {/* Arena Modifier presets (spec section 11) — every value stays editable after. */}
+            <div style={{
+              background: "rgba(255,255,255,0.05)", padding: 12, borderRadius: 8,
+              marginBottom: 12, border: "1px solid rgba(255,255,255,0.12)"
+            }}>
+              <div style={{ color: "#fff", fontWeight: 600, fontSize: 13, marginBottom: 8 }}>🎛️ Arena Presets</div>
+              <div style={{ display: "flex", gap: 6 }}>
+                {([
+                  ["CLASSIC", false, false, false, false, "#94a3b8"],
+                  ["CASUAL", true, false, false, false, "#22c55e"],
+                  ["HAZARD", false, true, true, false, "#f97316"],
+                  ["CHAOS", true, true, true, true, "#e879f9"],
+                ] as const).map(([name, p, b, z, e, color]) => {
+                  const current = pickupsEnabled === p && blockadesEnabled === b && zonesEnabled === z && eventsEnabled === e;
+                  return (
+                    <button key={name}
+                      onClick={() => { setPickupsEnabled(p); setBlockadesEnabled(b); setZonesEnabled(z); setEventsEnabled(e); }}
+                      style={{
+                        flex: 1, padding: "7px 2px", fontSize: 10, fontWeight: 800,
+                        borderRadius: 6, cursor: "pointer",
+                        border: `1px solid ${current ? color : "rgba(255,255,255,0.15)"}`,
+                        background: current ? color : "rgba(255,255,255,0.06)",
+                        color: current ? "#0b0b0b" : "#ccc",
+                      }}>{name}</button>
+                  );
+                })}
+              </div>
+            </div>
+
+            {/* Arena Modifiers — Pickups (spec sections 4 & 11). Default OFF. */}
+            <div style={{
+              background: "rgba(34,197,94,0.08)",
+              padding: 12,
+              borderRadius: 8,
+              marginBottom: 12,
+              border: "1px solid rgba(34,197,94,0.3)"
+            }}>
+              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+                <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                  <span style={{ fontSize: 18 }}>🎁</span>
+                  <span style={{ color: "#fff", fontWeight: 600, fontSize: 14 }}>Pickups</span>
+                </div>
+                <ToggleButton on={pickupsEnabled} onToggle={() => setPickupsEnabled((s) => !s)} label={pickupsEnabled ? "ON" : "OFF"} />
+              </div>
+              {pickupsEnabled && (
+                <div style={{ marginTop: 12, display: "flex", flexDirection: "column", gap: 10 }}>
+                  {/* Mode: Random/Auto (as before) vs Custom (pick which kinds + fixed duration) */}
+                  <div>
+                    <div style={{ color: "#ccc", fontSize: 11, marginBottom: 4 }}>Mode</div>
+                    <div style={{ display: "flex", gap: 6 }}>
+                      {([["auto", "Random / Auto"], ["custom", "Custom"]] as const).map(([val, label]) => (
+                        <button key={val} onClick={() => setPickupMode(val)}
+                          style={{
+                            flex: 1, padding: "6px 0", fontSize: 11,
+                            borderRadius: 6, cursor: "pointer", border: "1px solid rgba(255,255,255,0.15)",
+                            background: pickupMode === val ? "#22c55e" : "rgba(255,255,255,0.06)",
+                            color: pickupMode === val ? "#06210f" : "#ccc", fontWeight: 700,
+                          }}>{label}</button>
+                      ))}
+                    </div>
+                  </div>
+                  <div>
+                    <div style={{ color: "#ccc", fontSize: 11, marginBottom: 4 }}>Frequency</div>
+                    <div style={{ display: "flex", gap: 6 }}>
+                      {(["low", "medium", "high"] as const).map((f) => (
+                        <button key={f} onClick={() => setPickupFrequency(f)}
+                          style={{
+                            flex: 1, padding: "6px 0", fontSize: 11, textTransform: "capitalize",
+                            borderRadius: 6, cursor: "pointer", border: "1px solid rgba(255,255,255,0.15)",
+                            background: pickupFrequency === f ? "#22c55e" : "rgba(255,255,255,0.06)",
+                            color: pickupFrequency === f ? "#06210f" : "#ccc", fontWeight: 700,
+                          }}>{f}</button>
+                      ))}
+                    </div>
+                  </div>
+                  <div>
+                    <div style={{ color: "#ccc", fontSize: 11, marginBottom: 4 }}>Maximum on screen</div>
+                    <div style={{ display: "flex", gap: 6 }}>
+                      {[1, 2, 3, 5].map((m) => (
+                        <button key={m} onClick={() => setPickupMax(m)}
+                          style={{
+                            flex: 1, padding: "6px 0", fontSize: 11,
+                            borderRadius: 6, cursor: "pointer", border: "1px solid rgba(255,255,255,0.15)",
+                            background: pickupMax === m ? "#22c55e" : "rgba(255,255,255,0.06)",
+                            color: pickupMax === m ? "#06210f" : "#ccc", fontWeight: 700,
+                          }}>{m}</button>
+                      ))}
+                    </div>
+                  </div>
+                  {pickupMode === "auto" ? (
+                    <div>
+                      <div style={{ color: "#ccc", fontSize: 11, marginBottom: 4 }}>Good / Bad ratio</div>
+                      <div style={{ display: "flex", gap: 6 }}>
+                        {([["good", "Mostly Good"], ["balanced", "Balanced"], ["bad", "Mostly Bad"]] as const).map(([val, label]) => (
+                          <button key={val} onClick={() => setPickupRatio(val)}
+                            style={{
+                              flex: 1, padding: "6px 2px", fontSize: 10,
+                              borderRadius: 6, cursor: "pointer", border: "1px solid rgba(255,255,255,0.15)",
+                              background: pickupRatio === val ? "#22c55e" : "rgba(255,255,255,0.06)",
+                              color: pickupRatio === val ? "#06210f" : "#ccc", fontWeight: 700,
+                            }}>{label}</button>
+                        ))}
+                      </div>
+                    </div>
+                  ) : (
+                    <>
+                      {/* Effect duration: fixed seconds override, or Auto to keep each effect's default. */}
+                      <div>
+                        <div style={{ color: "#ccc", fontSize: 11, marginBottom: 4 }}>Effect duration</div>
+                        <div style={{ display: "flex", gap: 6 }}>
+                          {([[0, "Auto"], [3, "3s"], [5, "5s"], [8, "8s"], [12, "12s"]] as const).map(([val, label]) => (
+                            <button key={val} onClick={() => setPickupDurationSec(val)}
+                              style={{
+                                flex: 1, padding: "6px 0", fontSize: 10,
+                                borderRadius: 6, cursor: "pointer", border: "1px solid rgba(255,255,255,0.15)",
+                                background: pickupDurationSec === val ? "#22c55e" : "rgba(255,255,255,0.06)",
+                                color: pickupDurationSec === val ? "#06210f" : "#ccc", fontWeight: 700,
+                              }}>{label}</button>
+                          ))}
+                        </div>
+                      </div>
+                      {/* Per-kind enable: choose exactly which pickups can spawn. */}
+                      <ItemChips
+                        label="Enabled pickups"
+                        kinds={ARENA_PICKUP_KINDS}
+                        info={ARENA_PICKUP_INFO}
+                        selected={pickupSelected}
+                        onToggle={(k) => setPickupSelected((prev) => {
+                          const next = new Set(prev);
+                          if (next.has(k)) next.delete(k); else next.add(k);
+                          return next;
+                        })}
+                        onAll={() => setPickupSelected(new Set(ARENA_PICKUP_KINDS))}
+                        onNone={() => setPickupSelected(new Set())}
+                      />
+                    </>
+                  )}
+                </div>
+              )}
+            </div>
+
+            {/* Arena Modifiers — Blockades (spec sections 5 & 11). Default OFF. */}
+            <div style={{
+              background: "rgba(148,163,184,0.08)", padding: 12, borderRadius: 8,
+              marginBottom: 12, border: "1px solid rgba(148,163,184,0.3)"
+            }}>
+              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+                <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                  <span style={{ fontSize: 18 }}>🧱</span>
+                  <span style={{ color: "#fff", fontWeight: 600, fontSize: 14 }}>Blockades</span>
+                </div>
+                <ToggleButton on={blockadesEnabled} onToggle={() => setBlockadesEnabled((s) => !s)} label={blockadesEnabled ? "ON" : "OFF"} />
+              </div>
+              {blockadesEnabled && (
+                <div style={{ marginTop: 12, display: "flex", flexDirection: "column", gap: 10 }}>
+                  <SegRow label="Mode" value={blockadeMode} options={MODE_OPTIONS} onPick={setBlockadeMode} accent="#94a3b8" />
+                  <SegRow label="Density" value={blockadeDensity} options={FREQ_OPTIONS} onPick={setBlockadeDensity} accent="#94a3b8" />
+                  <SegRow label="Movement" value={blockadeMovement} options={FREQ_OPTIONS} onPick={setBlockadeMovement} accent="#94a3b8" />
+                  {blockadeMode === "custom" && (
+                    <>
+                      <SegRow label="Lifetime" value={blockadeDurationSec} options={DURATION_OPTIONS} onPick={setBlockadeDurationSec} accent="#94a3b8" />
+                      <ItemChips
+                        label="Enabled blockades"
+                        kinds={ARENA_BLOCKADE_KINDS}
+                        info={ARENA_BLOCKADE_INFO}
+                        selected={blockadeSelected}
+                        onToggle={(k) => setBlockadeSelected((prev) => {
+                          const next = new Set(prev);
+                          if (next.has(k)) next.delete(k); else next.add(k);
+                          return next;
+                        })}
+                        onAll={() => setBlockadeSelected(new Set(ARENA_BLOCKADE_KINDS))}
+                        onNone={() => setBlockadeSelected(new Set())}
+                      />
+                    </>
+                  )}
+                </div>
+              )}
+            </div>
+
+            {/* Arena Modifiers — Zones (spec sections 6 & 11). Default OFF. */}
+            <div style={{
+              background: "rgba(56,189,248,0.08)", padding: 12, borderRadius: 8,
+              marginBottom: 12, border: "1px solid rgba(56,189,248,0.3)"
+            }}>
+              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+                <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                  <span style={{ fontSize: 18 }}>🌀</span>
+                  <span style={{ color: "#fff", fontWeight: 600, fontSize: 14 }}>Zones</span>
+                </div>
+                <ToggleButton on={zonesEnabled} onToggle={() => setZonesEnabled((s) => !s)} label={zonesEnabled ? "ON" : "OFF"} />
+              </div>
+              {zonesEnabled && (
+                <div style={{ marginTop: 12, display: "flex", flexDirection: "column", gap: 10 }}>
+                  <SegRow label="Mode" value={zoneMode} options={MODE_OPTIONS} onPick={setZoneMode} accent="#38bdf8" />
+                  <SegRow label="Frequency" value={zoneFrequency} options={FREQ_OPTIONS} onPick={setZoneFrequency} accent="#38bdf8" />
+                  {zoneMode === "custom" && (
+                    <>
+                      <SegRow label="Zone lifetime" value={zoneDurationSec} options={DURATION_OPTIONS} onPick={setZoneDurationSec} accent="#38bdf8" />
+                      <ItemChips
+                        label="Enabled zones"
+                        kinds={ARENA_ZONE_KINDS}
+                        info={ARENA_ZONE_INFO}
+                        selected={zoneSelected}
+                        onToggle={(k) => setZoneSelected((prev) => {
+                          const next = new Set(prev);
+                          if (next.has(k)) next.delete(k); else next.add(k);
+                          return next;
+                        })}
+                        onAll={() => setZoneSelected(new Set(ARENA_ZONE_KINDS))}
+                        onNone={() => setZoneSelected(new Set())}
+                      />
+                    </>
+                  )}
+                </div>
+              )}
+            </div>
+
+            {/* Arena Modifiers — Events (spec sections 7 & 11). Default OFF. */}
+            <div style={{
+              background: "rgba(250,204,21,0.08)", padding: 12, borderRadius: 8,
+              marginBottom: 12, border: "1px solid rgba(250,204,21,0.3)"
+            }}>
+              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+                <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                  <span style={{ fontSize: 18 }}>⚡</span>
+                  <span style={{ color: "#fff", fontWeight: 600, fontSize: 14 }}>Events</span>
+                </div>
+                <ToggleButton on={eventsEnabled} onToggle={() => setEventsEnabled((s) => !s)} label={eventsEnabled ? "ON" : "OFF"} />
+              </div>
+              {eventsEnabled && (
+                <div style={{ marginTop: 12, display: "flex", flexDirection: "column", gap: 10 }}>
+                  <SegRow label="Mode" value={eventMode} options={MODE_OPTIONS} onPick={setEventMode} accent="#facc15" />
+                  <SegRow label="Frequency" value={eventFrequency} options={FREQ_OPTIONS} onPick={setEventFrequency} accent="#facc15" />
+                  {eventMode === "custom" && (
+                    <>
+                      <SegRow label="Event duration" value={eventDurationSec} options={DURATION_OPTIONS} onPick={setEventDurationSec} accent="#facc15" />
+                      <ItemChips
+                        label="Enabled events"
+                        kinds={ARENA_EVENT_KINDS}
+                        info={ARENA_EVENT_INFO}
+                        selected={eventSelected}
+                        onToggle={(k) => setEventSelected((prev) => {
+                          const next = new Set(prev);
+                          if (next.has(k)) next.delete(k); else next.add(k);
+                          return next;
+                        })}
+                        onAll={() => setEventSelected(new Set(ARENA_EVENT_KINDS))}
+                        onNone={() => setEventSelected(new Set())}
+                      />
+                    </>
+                  )}
+                </div>
+              )}
+            </div>
+
             {/* Arena Shapes */}
             <div style={{ 
               background: "rgba(255,255,255,0.05)", 
@@ -11545,9 +14179,6 @@ const ArenaPage: React.FC = () => {
                     style={{ width: "100%", cursor: isRunning ? "not-allowed" : "pointer" }}
                   />
                 </div>
-                <div style={{ color: "#999", fontSize: 11, fontStyle: "italic" }}>
-                  {isRunning ? "Size locked during game" : "Adjust before/between games"}
-                </div>
               </div>
             )}
 
@@ -11571,7 +14202,7 @@ const ArenaPage: React.FC = () => {
                     <div style={{ marginBottom: 12 }}>
                       <div style={{ color: "#ccc", fontSize: 12, marginBottom: 8, fontWeight: 500 }}>Select Powers:</div>
                       <div style={{ display: "grid", gridTemplateColumns: "repeat(2, 1fr)", gap: 6 }}>
-                        {(Object.keys(SUPER_BUBBLE_TYPES) as (keyof typeof SUPER_BUBBLE_TYPES)[]).map((k) => (
+                        {AVAILABLE_POWER_KEYS.map((k) => (
                           <button
                             key={k}
                             onClick={() => setSelectedPowers((s) => ({ ...s, [k]: !s[k] }))}
@@ -11589,7 +14220,7 @@ const ArenaPage: React.FC = () => {
                             }}
                             title={`${SUPER_BUBBLE_TYPES[k].name} (${SUPER_BUBBLE_TYPES[k].damage} dmg)`}
                           >
-                            {SUPER_BUBBLE_TYPES[k].name}
+                            {powerBadge(SUPER_BUBBLE_TYPES[k].name)}
                           </button>
                         ))}
                       </div>
@@ -11842,7 +14473,6 @@ const ArenaPage: React.FC = () => {
                     style={{ width: "100%", padding: "6px", borderRadius: 4, background: "rgba(255,255,255,0.1)", color: "#fff", border: "1px solid rgba(76,175,80,0.3)" }} 
                     placeholder="0 = disabled"
                   />
-                  <div style={{ color: "#999", fontSize: 11, marginTop: 4 }}>If timer is set, powers activate only after this delay. 0 = active from start</div>
                 </div>
 
                 {playerPowersEnabled && (
@@ -11910,31 +14540,11 @@ const ArenaPage: React.FC = () => {
                     {playerPowerMode === "pickup" && (
                       <div style={{ marginBottom: 12 }}>
                         <div style={{ color: "#ccc", fontSize: 12, marginBottom: 8, fontWeight: 500 }}>Select Powers to Spawn:</div>
-                        <div style={{ display: "grid", gridTemplateColumns: "repeat(2, 1fr)", gap: 6 }}>
-                          {(Object.keys(SUPER_BUBBLE_TYPES) as (keyof typeof SUPER_BUBBLE_TYPES)[]).map((k) => (
-                            <button
-                              key={k}
-                              onClick={() => setSelectedPlayerPowers((s) => ({ ...s, [k]: !s[k] }))}
-                              style={{
-                                padding: "8px 6px",
-                                borderRadius: 6,
-                                background: selectedPlayerPowers[k] ? "#4caf50" : "rgba(255,255,255,0.08)",
-                                color: selectedPlayerPowers[k] ? "#fff" : "#ccc",
-                                border: selectedPlayerPowers[k] ? "1px solid #66bb6a" : "1px solid rgba(255,255,255,0.15)",
-                                cursor: "pointer",
-                                fontSize: 11,
-                                fontWeight: selectedPlayerPowers[k] ? 600 : 400,
-                                transition: "all 0.2s",
-                                textAlign: "center"
-                              }}
-                              title={`${SUPER_BUBBLE_TYPES[k].name} (${SUPER_BUBBLE_TYPES[k].damage} dmg)`}
-                            >
-                              {SUPER_BUBBLE_TYPES[k].name}
-                            </button>
+                        <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(34px, 1fr))", gap: 5 }}>
+                          {AVAILABLE_POWER_KEYS.map((k) => (
+                            <PowerChips key={k} powerKey={k} active={!!selectedPlayerPowers[k]} accent="#4caf50"
+                              onToggle={() => setSelectedPlayerPowers((s) => ({ ...s, [k]: !s[k] }))} />
                           ))}
-                        </div>
-                        <div style={{ color: "#999", fontSize: 11, marginTop: 8, fontStyle: "italic" }}>
-                          Spawns every ~7s, lasts 5s, powers last 10s
                         </div>
                       </div>
                     )}
@@ -11946,32 +14556,15 @@ const ArenaPage: React.FC = () => {
                         
                         {/* Power Grid - Assign powers to bubbles visually */}
                         <div style={{ background: "rgba(0,0,0,0.3)", borderRadius: 6, padding: 10, marginBottom: 12 }}>
-                          <div style={{ color: "#aaa", fontSize: 10, marginBottom: 8, fontStyle: "italic" }}>Click power → Click bubble(s) to assign. Max 8 bubbles.</div>
-                          <div style={{ display: "grid", gridTemplateColumns: "repeat(4, 1fr)", gap: 6, marginBottom: 12 }}>
-                            {(Object.keys(SUPER_BUBBLE_TYPES) as (keyof typeof SUPER_BUBBLE_TYPES)[]).map((powerKey) => (
-                              <button
-                                key={powerKey}
-                                onClick={() => {
-                                  // Toggle power selection for assignment
+                          <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(34px, 1fr))", gap: 5, marginBottom: 12 }}>
+                            {AVAILABLE_POWER_KEYS.map((powerKey) => (
+                              <PowerChips key={powerKey} powerKey={powerKey} active={powerAssignments.some(a => a.type === powerKey)} accent="#4caf50"
+                                onToggle={() => {
                                   const existing = powerAssignments.filter(a => a.type === powerKey);
                                   if (existing.length > 0) {
                                     setPowerAssignments((prev) => prev.filter(a => a.type !== powerKey));
                                   }
-                                }}
-                                style={{
-                                  padding: "6px 4px",
-                                  borderRadius: 4,
-                                  background: powerAssignments.some(a => a.type === powerKey) ? "#4caf50" : "rgba(255,255,255,0.08)",
-                                  color: powerAssignments.some(a => a.type === powerKey) ? "#fff" : "#aaa",
-                                  border: powerAssignments.some(a => a.type === powerKey) ? "1px solid #66bb6a" : "1px solid rgba(255,255,255,0.15)",
-                                  cursor: "pointer",
-                                  fontSize: 9,
-                                  fontWeight: powerAssignments.some(a => a.type === powerKey) ? 600 : 400
-                                }}
-                                title={`${SUPER_BUBBLE_TYPES[powerKey].name} (${SUPER_BUBBLE_TYPES[powerKey].damage} dmg)`}
-                              >
-                                {SUPER_BUBBLE_TYPES[powerKey].name.substring(0, 8)}
-                              </button>
+                                }} />
                             ))}
                           </div>
                         </div>
@@ -12058,7 +14651,7 @@ const ArenaPage: React.FC = () => {
                                 fontSize: 11
                               }}
                             >
-                              {(Object.keys(SUPER_BUBBLE_TYPES) as (keyof typeof SUPER_BUBBLE_TYPES)[]).map((k) => (
+                              {AVAILABLE_POWER_KEYS.map((k) => (
                                 <option key={k} value={k}>
                                   {SUPER_BUBBLE_TYPES[k].name} ({SUPER_BUBBLE_TYPES[k].damage} dmg)
                                 </option>
@@ -12122,9 +14715,6 @@ const ArenaPage: React.FC = () => {
                           >
                             + Add Assignment
                           </button>
-                        </div>
-                        <div style={{ color: "#999", fontSize: 11, fontStyle: "italic" }}>
-                          Bubbles are indexed 0-based (first bubble = 0, second = 1, etc.)
                         </div>
                       </div>
                     )}
@@ -12202,6 +14792,23 @@ const ArenaPage: React.FC = () => {
                     </label>
                   </div>
                 </div>
+
+                {/* Manual Shoot Button (player bubbles) */}
+                {playerBubblesFiringMode === "manual" && (
+                  <button
+                    onClick={() => { manualShootRequestRef.current = true; }}
+                    disabled={!isRunning}
+                    style={{
+                      width: "100%", height: 38, marginBottom: 12,
+                      background: !isRunning ? "rgba(255,255,255,0.1)" : "#4caf50",
+                      color: "#fff", border: "none", borderRadius: 6,
+                      cursor: !isRunning ? "not-allowed" : "pointer",
+                      fontSize: 14, fontWeight: 700
+                    }}
+                  >
+                    🔫 Shoot Now
+                  </button>
+                )}
 
                 {/* Projectile Count */}
                 <div style={{ marginBottom: 12 }}>
@@ -12319,9 +14926,6 @@ const ArenaPage: React.FC = () => {
                     style={{ width: "100%", cursor: isRunning ? "not-allowed" : "pointer" }}
                   />
                 </div>
-                <div style={{ color: "#999", fontSize: 11, fontStyle: "italic" }}>
-                  {isRunning ? "Size locked during game" : "Adjust before/between games"}
-                </div>
               </div>
             )}
 
@@ -12356,7 +14960,6 @@ const ArenaPage: React.FC = () => {
                     style={{ width: "100%", padding: "6px", borderRadius: 4, background: "rgba(255,255,255,0.1)", color: "#fff", border: "1px solid rgba(255,152,0,0.3)" }} 
                     placeholder="0 = disabled"
                   />
-                  <div style={{ color: "#999", fontSize: 11, marginTop: 4 }}>If timer is set, powers activate only after this delay. 0 = active from start</div>
                 </div>
 
                 {brawlPowersEnabled && (
@@ -12409,31 +15012,11 @@ const ArenaPage: React.FC = () => {
                             <div style={{ color: "#ccc", fontSize: 12, marginBottom: 8, fontWeight: 500 }}>
                               Select Powers (Random assignment):
                             </div>
-                            <div style={{ display: "grid", gridTemplateColumns: "repeat(2, 1fr)", gap: 6 }}>
-                              {(Object.keys(SUPER_BUBBLE_TYPES) as (keyof typeof SUPER_BUBBLE_TYPES)[]).map((k) => (
-                                <button
-                                  key={k}
-                                  onClick={() => setSelectedBrawlPowers((s) => ({ ...s, [k]: !s[k] }))}
-                                  style={{
-                                    padding: "8px 6px",
-                                    borderRadius: 6,
-                                    background: selectedBrawlPowers[k] ? "#ff9800" : "rgba(255,255,255,0.08)",
-                                    color: selectedBrawlPowers[k] ? "#fff" : "#ccc",
-                                    border: selectedBrawlPowers[k] ? "1px solid #ffa726" : "1px solid rgba(255,255,255,0.15)",
-                                    cursor: "pointer",
-                                    fontSize: 11,
-                                    fontWeight: selectedBrawlPowers[k] ? 600 : 400,
-                                    transition: "all 0.2s",
-                                    textAlign: "center"
-                                  }}
-                                  title={`${SUPER_BUBBLE_TYPES[k].name} (${SUPER_BUBBLE_TYPES[k].damage} dmg)`}
-                                >
-                                  {SUPER_BUBBLE_TYPES[k].name}
-                                </button>
+                            <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(34px, 1fr))", gap: 5 }}>
+                              {AVAILABLE_POWER_KEYS.map((k) => (
+                                <PowerChips key={k} powerKey={k} active={!!selectedBrawlPowers[k]} accent="#ff9800"
+                                  onToggle={() => setSelectedBrawlPowers((s) => ({ ...s, [k]: !s[k] }))} />
                               ))}
-                            </div>
-                            <div style={{ color: "#999", fontSize: 11, marginTop: 8, fontStyle: "italic" }}>
-                              Each fighter gets a random power from selected options
                             </div>
                           </>
                         )}
@@ -12497,7 +15080,7 @@ const ArenaPage: React.FC = () => {
                                   id="fighter1Power"
                                   style={{ width: "100%", padding: 6, borderRadius: 4, fontSize: 11, background: "#333", color: "#fff", border: "1px solid #555" }}
                                 >
-                                  {(Object.keys(SUPER_BUBBLE_TYPES) as (keyof typeof SUPER_BUBBLE_TYPES)[]).map((k) => (
+                                  {AVAILABLE_POWER_KEYS.map((k) => (
                                     <option key={k} value={k}>{SUPER_BUBBLE_TYPES[k].name}</option>
                                   ))}
                                 </select>
@@ -12508,7 +15091,7 @@ const ArenaPage: React.FC = () => {
                                   id="fighter2Power"
                                   style={{ width: "100%", padding: 6, borderRadius: 4, fontSize: 11, background: "#333", color: "#fff", border: "1px solid #555" }}
                                 >
-                                  {(Object.keys(SUPER_BUBBLE_TYPES) as (keyof typeof SUPER_BUBBLE_TYPES)[]).map((k) => (
+                                  {AVAILABLE_POWER_KEYS.map((k) => (
                                     <option key={k} value={k}>{SUPER_BUBBLE_TYPES[k].name}</option>
                                   ))}
                                 </select>
@@ -12592,31 +15175,11 @@ const ArenaPage: React.FC = () => {
                             <div style={{ color: "#ccc", fontSize: 12, marginBottom: 8, fontWeight: 500 }}>
                               Select Powers (Random assignment):
                             </div>
-                            <div style={{ display: "grid", gridTemplateColumns: "repeat(2, 1fr)", gap: 6 }}>
-                              {(Object.keys(SUPER_BUBBLE_TYPES) as (keyof typeof SUPER_BUBBLE_TYPES)[]).map((k) => (
-                                <button
-                                  key={k}
-                                  onClick={() => setSelectedBrawlPowers((s) => ({ ...s, [k]: !s[k] }))}
-                                  style={{
-                                    padding: "8px 6px",
-                                    borderRadius: 6,
-                                    background: selectedBrawlPowers[k] ? "#ff9800" : "rgba(255,255,255,0.08)",
-                                    color: selectedBrawlPowers[k] ? "#fff" : "#ccc",
-                                    border: selectedBrawlPowers[k] ? "1px solid #ffa726" : "1px solid rgba(255,255,255,0.15)",
-                                    cursor: "pointer",
-                                    fontSize: 11,
-                                    fontWeight: selectedBrawlPowers[k] ? 600 : 400,
-                                    transition: "all 0.2s",
-                                    textAlign: "center"
-                                  }}
-                                  title={`${SUPER_BUBBLE_TYPES[k].name} (${SUPER_BUBBLE_TYPES[k].damage} dmg)`}
-                                >
-                                  {SUPER_BUBBLE_TYPES[k].name}
-                                </button>
+                            <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(34px, 1fr))", gap: 5 }}>
+                              {AVAILABLE_POWER_KEYS.map((k) => (
+                                <PowerChips key={k} powerKey={k} active={!!selectedBrawlPowers[k]} accent="#ff9800"
+                                  onToggle={() => setSelectedBrawlPowers((s) => ({ ...s, [k]: !s[k] }))} />
                               ))}
-                            </div>
-                            <div style={{ color: "#999", fontSize: 11, marginTop: 8, fontStyle: "italic" }}>
-                              All bubbles get random powers from selected options
                             </div>
                           </>
                         )}
@@ -12706,7 +15269,7 @@ const ArenaPage: React.FC = () => {
                                     fontSize: 11
                                   }}
                                 >
-                                  {(Object.keys(SUPER_BUBBLE_TYPES) as (keyof typeof SUPER_BUBBLE_TYPES)[]).map((k) => (
+                                  {AVAILABLE_POWER_KEYS.map((k) => (
                                     <option key={k} value={k}>
                                       {SUPER_BUBBLE_TYPES[k].name} ({SUPER_BUBBLE_TYPES[k].damage} dmg)
                                     </option>
@@ -12769,9 +15332,6 @@ const ArenaPage: React.FC = () => {
                               >
                                 + Add Assignment
                               </button>
-                            </div>
-                            <div style={{ color: "#999", fontSize: 11, fontStyle: "italic" }}>
-                              Solo bubble is index 0, "many" bubbles start from 1
                             </div>
                           </>
                         )}
@@ -12846,6 +15406,23 @@ const ArenaPage: React.FC = () => {
                           </label>
                         </div>
                       </div>
+
+                      {/* Manual Shoot Button (brawl bubbles) */}
+                      {brawlBubblesFiringMode === "manual" && (
+                        <button
+                          onClick={() => { manualShootRequestRef.current = true; }}
+                          disabled={!isRunning}
+                          style={{
+                            width: "100%", height: 38, marginBottom: 12,
+                            background: !isRunning ? "rgba(255,255,255,0.1)" : "#ff9800",
+                            color: "#fff", border: "none", borderRadius: 6,
+                            cursor: !isRunning ? "not-allowed" : "pointer",
+                            fontSize: 14, fontWeight: 700
+                          }}
+                        >
+                          🔫 Shoot Now
+                        </button>
+                      )}
 
                       {/* Projectile Count */}
                       <div style={{ marginBottom: 12 }}>

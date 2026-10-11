@@ -1,0 +1,23 @@
+/* Preserve each source avatar's proportions inside its circular selector. */
+.bb-orb { background-size: 600% auto; }
+.bb-mode-wizard { max-width: 620px; }
+.bb-mode-wizard .bb-choice-grid button { min-height: 210px; overflow: hidden; align-content: end; padding: 12px; background: linear-gradient(145deg, rgba(4,20,62,.92), rgba(9,6,38,.97)); }
+.bb-mode-wizard .bb-choice-grid button.normal { border-color: #5d42ff; }
+.bb-mode-wizard .bb-choice-grid button.boss { border-color: #ec2871; background: linear-gradient(145deg, rgba(86,5,32,.82), rgba(28,5,25,.98)); }
+.bb-mode-wizard .bb-choice-grid button.duel { border-color: #3464c8; }
+.bb-mode-wizard .bb-choice-grid button.many { border-color: #9b41ca; }
+.bb-mode-art { height: 118px; display: grid; place-items: center; width: 100%; background: radial-gradient(circle, rgba(86,39,255,.45), transparent 66%); }
+.bb-mode-art .bb-orb-large { width: 90px; height: 90px; }
+.bb-mode-wizard .bb-choice-grid b { font-size: 17px; }
+.bb-wizard:has(.bb-choice-grid) { max-width: 620px; }
+.bb-wizard:has(.bb-choice-grid) .bb-choice-grid button { min-height: 210px; overflow: hidden; align-content: end; padding: 12px; background: linear-gradient(145deg, rgba(4,20,62,.92), rgba(9,6,38,.97)); }
+.bb-wizard:has(.bb-choice-grid) .bb-choice-grid .bb-orb { width: 90px; height: 90px; margin-bottom: 8px; }
+.bb-wizard:has(.bb-choice-grid) .bb-choice-grid button.normal { border-color: #5d42ff; }
+.bb-wizard:has(.bb-choice-grid) .bb-choice-grid button.boss { border-color: #ec2871; background: linear-gradient(145deg, rgba(86,5,32,.82), rgba(28,5,25,.98)); }
+.bb-wizard:has(.bb-choice-grid) .bb-choice-grid button.duel { border-color: #3464c8; }
+.bb-wizard:has(.bb-choice-grid) .bb-choice-grid button.many { border-color: #9b41ca; }
+.bb-wizard:has(.bb-choice-grid) .bb-choice-grid button .bb-orb { width: 100%; height: 128px; border-radius: 7px; background-size: cover; background-position: center; box-shadow: none; }
+.bb-wizard:has(.bb-choice-grid) .bb-choice-grid button:nth-child(1) .bb-orb { background-image: url('/css/images/mode-normal-arena.png'); }
+.bb-wizard:has(.bb-choice-grid) .bb-choice-grid button:nth-child(2) .bb-orb { background-image: url('/css/images/mode-boss-arena.png'); }
+.bb-wizard:has(.bb-choice-grid) .bb-choice-grid button:nth-child(3) .bb-orb { background-image: url('/css/images/mode-1v1.png'); }
+.bb-wizard:has(.bb-choice-grid) .bb-choice-grid button:nth-child(4) .bb-orb { background-image: url('/css/images/mode-1vmany.png'); }

@@ -1,0 +1,14 @@
+{
+  "version": 1,
+  "id": "player-1788629679768-3mfz2r",
+  "name": "Player One",
+  "avatar": 0,
+  "color": "cyan",
+  "hp": 100,
+  "powers": [],
+  "match": {
+    "mode": "normal",
+    "arena": "circle"
+  },
+  "createdAt": "2026-09-05T17:34:39.768Z"
+}

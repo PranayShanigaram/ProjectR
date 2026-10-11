@@ -61,28 +61,261 @@
       },
       "createdAt": 1788591758570,
       "gameIndex": "game-3"
+    },
+    "game-1788624994393": {
+      "players": {
+        "dustindebbs": {
+          "hits": 11
+        },
+        "rizzroulette": {
+          "hits": 11
+        },
+        "superbubble": {
+          "hits": 45,
+          "image": "game-game-1788624994393-superbubble.webp"
+        }
+      },
+      "createdAt": 1788624994521,
+      "gameIndex": "game-4"
+    },
+    "game-1788681470532": {
+      "players": {
+        "all_carin": {
+          "hits": 6
+        },
+        "nour2745": {
+          "hits": 12
+        },
+        "rizzroulette": {
+          "hits": 12
+        },
+        "superbubble": {
+          "hits": 26,
+          "image": "game-game-1788681470532-superbubble.jpg"
+        },
+        "flam.enco16": {
+          "hits": 14
+        }
+      },
+      "createdAt": 1788681470576,
+      "gameIndex": "game-5",
+      "winner": "team"
+    },
+    "game-1788681798580": {
+      "players": {
+        "all_carin": {
+          "hits": 32
+        },
+        "nour2745": {
+          "hits": 26
+        },
+        "rizzroulette": {
+          "hits": 26
+        },
+        "superbubble": {
+          "hits": 50,
+          "image": "game-game-1788681798580-superbubble.jpg"
+        }
+      },
+      "createdAt": 1788681798592,
+      "gameIndex": "game-6",
+      "winner": "team"
+    },
+    "game-1788682197030": {
+      "players": {
+        "flam.enco16": {
+          "hits": 27
+        },
+        "itx_sazzu_09": {
+          "hits": 17
+        },
+        "shoolin.10": {
+          "hits": 24
+        },
+        "superbubble": {
+          "hits": 50,
+          "image": "game-game-1788682197030-superbubble.png"
+        }
+      },
+      "createdAt": 1788682197037,
+      "gameIndex": "game-7",
+      "winner": "team"
+    },
+    "game-1788682542062": {
+      "players": {
+        "eva.n1120": {
+          "hits": 3
+        },
+        "flam.enco16": {
+          "hits": 3
+        },
+        "superbubble": {
+          "hits": 9,
+          "image": "game-game-1788682542062-superbubble.jpg"
+        }
+      },
+      "createdAt": 1788682542082,
+      "gameIndex": "game-8"
+    },
+    "game-1788683045049": {
+      "players": {
+        "eva.n1120": {
+          "hits": 12
+        },
+        "flam.enco16": {
+          "hits": 12
+        },
+        "superbubble": {
+          "hits": 29,
+          "image": "game-game-1788683045049-superbubble.webp"
+        },
+        "shoolin.10": {
+          "hits": 8
+        }
+      },
+      "createdAt": 1788683045093,
+      "gameIndex": "game-9",
+      "winner": "superbubble"
+    },
+    "game-1788683206158": {
+      "players": {
+        "eva.n1120": {
+          "hits": 5
+        },
+        "flam.enco16": {
+          "hits": 5
+        },
+        "superbubble": {
+          "hits": 4,
+          "image": "game-game-1788683206158-superbubble.webp"
+        }
+      },
+      "createdAt": 1788683206175,
+      "gameIndex": "game-10"
+    },
+    "game-1788683289871": {
+      "players": {
+        "eva.n1120": {
+          "hits": 4
+        },
+        "flam.enco16": {
+          "hits": 4
+        },
+        "superbubble": {
+          "hits": 15,
+          "image": "game-game-1788683289871-superbubble.webp"
+        }
+      },
+      "createdAt": 1788683289891,
+      "gameIndex": "game-11",
+      "winner": "superbubble"
+    },
+    "game-1788683343639": {
+      "players": {
+        "eva.n1120": {
+          "hits": 15
+        },
+        "flam.enco16": {
+          "hits": 14
+        },
+        "superbubble": {
+          "hits": 50,
+          "image": "game-game-1788683343639-superbubble.webp"
+        }
+      },
+      "createdAt": 1788683343654,
+      "gameIndex": "game-12",
+      "winner": "team"
+    },
+    "game-1788684897232": {
+      "players": {
+        "nour2745": {
+          "hits": 0
+        },
+        "shoolin.10": {
+          "hits": 0
+        },
+        "superbubble": {
+          "hits": 2,
+          "image": "game-game-1788684897232-superbubble.webp"
+        }
+      },
+      "createdAt": 1788684897245,
+      "gameIndex": "game-13"
+    },
+    "game-1788684959547": {
+      "players": {
+        "djokin.34": {
+          "hits": 0
+        },
+        "nour2745": {
+          "hits": 0
+        },
+        "superbubble": {
+          "hits": 0,
+          "image": "game-game-1788684959547-superbubble.webp"
+        }
+      },
+      "createdAt": 1788684960422,
+      "gameIndex": "game-14"
+    },
+    "game-1788685465404": {
+      "players": {
+        "all_carin": {
+          "hits": 2
+        },
+        "nour2745": {
+          "hits": 2
+        },
+        "superbubble": {
+          "hits": 2,
+          "image": "game-game-1788685465404-superbubble.webp"
+        }
+      },
+      "createdAt": 1788685465428,
+      "gameIndex": "game-15"
+    },
+    "game-1788685555143": {
+      "players": {
+        "eva.n1120": {
+          "hits": 3
+        },
+        "mr_sajid_official_77": {
+          "hits": 0
+        },
+        "superbubble": {
+          "hits": 6,
+          "image": "game-game-1788685555143-superbubble.webp"
+        },
+        "shoolin.10": {
+          "hits": 4
+        }
+      },
+      "createdAt": 1788685555153,
+      "gameIndex": "game-16",
+      "winner": "team"
     }
   },
   "totals": {
     "dustindebbs": {
-      "hits": 9,
-      "games": 2
+      "hits": 20,
+      "games": 3
     },
     "eva.n1120": {
-      "hits": 26,
-      "games": 1
+      "hits": 68,
+      "games": 7
     },
     "shoolin.10": {
-      "hits": 15,
-      "games": 1
+      "hits": 51,
+      "games": 5
     },
     "flam.enco16": {
-      "hits": 55,
-      "games": 2
+      "hits": 134,
+      "games": 9
     },
     "nour2745": {
-      "hits": 16,
-      "games": 1
+      "hits": 56,
+      "games": 6
     },
     "kratos": {
       "hits": 3,
@@ -93,14 +326,26 @@
       "games": 1
     },
     "all_carin": {
-      "hits": 27,
-      "games": 1
+      "hits": 67,
+      "games": 4
     },
     "armadillo_13.57": {
       "hits": 29,
       "games": 1
     },
     "rizzroulette": {
+      "hits": 49,
+      "games": 4
+    },
+    "itx_sazzu_09": {
+      "hits": 17,
+      "games": 1
+    },
+    "djokin.34": {
+      "hits": 0,
+      "games": 1
+    },
+    "mr_sajid_official_77": {
       "hits": 0,
       "games": 1
     }

@@ -18,6 +18,57 @@ app.use('/superimgstorage', express.static(path.join(__dirname, 'superimgstorage
 app.use('/solo_brawls', express.static(path.join(__dirname, 'solo_brawls')));
 app.use('/client-types', express.static(path.join(__dirname, '../client/src/types')));
 
+const PLAYER_ENTRIES_DIR = path.join(__dirname, 'player_entries');
+if (!fs.existsSync(PLAYER_ENTRIES_DIR)) fs.mkdirSync(PLAYER_ENTRIES_DIR, { recursive: true });
+
+const playerEntryFileName = (name) => {
+  const slug = String(name || 'player')
+    .trim()
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, '-')
+    .replace(/^-+|-+$/g, '') || 'player';
+  return `${Date.now()}-${slug}.json`;
+};
+
+const savePlayerEntry = (entry) => {
+  if (!entry || !String(entry.name || '').trim()) throw new Error('Player name is required');
+  const normalized = {
+    version: 1,
+    id: entry.id || `player-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+    name: String(entry.name).trim(),
+    avatar: entry.avatar ?? 0,
+    color: entry.color || 'cyan',
+    hp: Number(entry.hp) || 100,
+    powers: Array.isArray(entry.powers) ? entry.powers : [],
+    match: entry.match || null,
+    createdAt: entry.createdAt || new Date().toISOString(),
+  };
+  const fileName = playerEntryFileName(normalized.name);
+  fs.writeFileSync(path.join(PLAYER_ENTRIES_DIR, fileName), JSON.stringify(normalized, null, 2), 'utf8');
+  return { fileName, entry: normalized };
+};
+
+app.get('/api/player-entries', (_req, res) => {
+  try {
+    const entries = fs.readdirSync(PLAYER_ENTRIES_DIR)
+      .filter((file) => file.endsWith('.json'))
+      .map((file) => ({ fileName: file, entry: JSON.parse(fs.readFileSync(path.join(PLAYER_ENTRIES_DIR, file), 'utf8')) }));
+    res.json(entries);
+  } catch (error) {
+    res.status(500).json({ error: 'Failed to read player entries' });
+  }
+});
+
+app.post('/api/player-entries', (req, res) => {
+  try {
+    const payload = Array.isArray(req.body?.entries) ? req.body.entries : [req.body];
+    const saved = payload.map(savePlayerEntry);
+    res.status(201).json({ ok: true, entries: saved });
+  } catch (error) {
+    res.status(400).json({ error: error.message || 'Failed to save player entry' });
+  }
+});
+
 // Supported image extensions
 const IMAGE_EXTENSIONS = ['.png', '.jpg', '.jpeg', '.gif', '.bmp', '.webp', '.svg'];
 

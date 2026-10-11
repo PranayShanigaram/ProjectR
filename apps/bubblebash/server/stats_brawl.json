@@ -1,5 +1,109 @@
 {
-  "games": {},
-  "totals_1v1": {},
-  "totals_1vMany": {}
+  "games": {
+    "game-1788682124406": {
+      "players": {
+        "Khayatholla Ahamenei": {
+          "hits": 20,
+          "kills": 1,
+          "wins": 0
+        },
+        "Toland Drump": {
+          "hits": 20,
+          "kills": 1,
+          "wins": 0
+        }
+      },
+      "createdAt": 1788682124417,
+      "gameIndex": "game-1",
+      "brawlMode": "1v1",
+      "winner": "draw"
+    },
+    "game-1788684452967": {
+      "players": {
+        "dustindebbs": {
+          "hits": 10,
+          "kills": 0,
+          "wins": 0
+        },
+        "shoolin.10": {
+          "hits": 6,
+          "kills": 0,
+          "wins": 0
+        },
+        "rizzroulette": {
+          "hits": 4,
+          "kills": 0,
+          "wins": 0
+        }
+      },
+      "createdAt": 1788684453027,
+      "gameIndex": "game-2",
+      "brawlMode": "1vMany",
+      "soloPlayer": "dustindebbs"
+    },
+    "game-1791706421807": {
+      "players": {
+        "all_carin": {
+          "hits": 4,
+          "kills": 1,
+          "wins": 1
+        },
+        "dustindebbs": {
+          "hits": 5,
+          "kills": 0,
+          "wins": 0
+        }
+      },
+      "createdAt": 1791706421931,
+      "gameIndex": "game-3",
+      "brawlMode": "1v1",
+      "winner": "all_carin"
+    }
+  },
+  "totals_1v1": {
+    "Khayatholla Ahamenei": {
+      "hits": 20,
+      "kills": 1,
+      "wins": 0,
+      "games": 1
+    },
+    "Toland Drump": {
+      "hits": 20,
+      "kills": 1,
+      "wins": 0,
+      "games": 1
+    },
+    "all_carin": {
+      "hits": 4,
+      "kills": 1,
+      "wins": 1,
+      "games": 1
+    },
+    "dustindebbs": {
+      "hits": 5,
+      "kills": 0,
+      "wins": 0,
+      "games": 1
+    }
+  },
+  "totals_1vMany": {
+    "dustindebbs": {
+      "hits": 10,
+      "kills": 0,
+      "wins": 0,
+      "games": 1
+    },
+    "shoolin.10": {
+      "hits": 6,
+      "kills": 0,
+      "wins": 0,
+      "games": 1
+    },
+    "rizzroulette": {
+      "hits": 4,
+      "kills": 0,
+      "wins": 0,
+      "games": 1
+    }
+  }
 }

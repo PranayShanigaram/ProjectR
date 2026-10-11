@@ -1,0 +1,35 @@
+{
+  "version": 1,
+  "id": "player-1788677825888-lqi6l7",
+  "name": "Player One",
+  "avatar": 2,
+  "color": "white",
+  "hp": 100,
+  "powers": [
+    {
+      "key": "missile",
+      "name": "Missile",
+      "price": 50
+    },
+    {
+      "key": "rocket",
+      "name": "Rocket",
+      "price": 66
+    },
+    {
+      "key": "grenade",
+      "name": "Grenade",
+      "price": 39
+    },
+    {
+      "key": "emp_pulse",
+      "name": "EMP Pulse",
+      "price": 42
+    }
+  ],
+  "match": {
+    "mode": "normal",
+    "arena": "circle"
+  },
+  "createdAt": "2026-09-06T06:57:05.889Z"
+}

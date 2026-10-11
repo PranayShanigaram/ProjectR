@@ -16,15 +16,15 @@ const modes: Record<Game, string[]> = {
 };
 
 function Header() {
-  return <header className="pr-header"><Link to="/" className="pr-brand"><span>◧</span> ProjectR</Link><nav><Link to="/">Home</Link><Link to="/games">Games</Link><a href="#matches">Matches</a><a href="#leaderboard">Leaderboard</a></nav><Link className="pr-login" to="/games">Login</Link></header>;
+  return <header className="pr-header"><Link to="/" className="pr-brand"><span>◧</span><b>Brawlers Arena</b></Link><nav><Link to="/">Home</Link><Link to="/games">Games</Link><a href="#matches">Matches</a><a href="#leaderboard">Leaderboard</a><a href="#shop">Shop</a><a href="#about">About</a></nav><Link className="pr-login" to="/games">♟ <span>Login</span></Link></header>;
 }
 
 function GameCards() {
-  return <section className="pr-games">{(Object.keys(gameInfo) as Game[]).map((game) => { const info = gameInfo[game]; return <Link key={game} to={`/${game}`} className={`pr-game-card ${info.color}`}><div className="game-orb">{info.icon}</div><div><small>{info.short}</small><h2>{info.title}</h2><p>{info.description}</p></div><span className="play">Play now →</span></Link>; })}</section>;
+  return <section className="pr-games">{(Object.keys(gameInfo) as Game[]).map((game) => { const info = gameInfo[game]; return <Link key={game} to={`/${game}`} className={`pr-game-card ${info.color}`}><div className="game-card-art"><div className="game-art-core">{game === "bubblebash" ? <img src="/css/images/bubblebash-arena-asteroids.png" alt="" /> : <span>{info.icon}</span>}</div><i className="game-art-ring" /><i className="game-art-ring second" /></div><div className="pr-card-copy"><small>{info.short}</small><h2>{info.title}</h2><p>{info.description}</p><span className="play">Play now <b>→</b></span></div></Link>; })}</section>;
 }
 
 function Home() {
-  return <><section className="pr-hero"><div><p className="kicker">WELCOME TO PROJECTR</p><h1>THREE ARENAS<br /><span>ONE COMMUNITY</span></h1><p>Choose your game. Build your team. Buy powers. Watch the chaos.</p><div className="hero-actions"><Link className="button primary" to="/games">Create match →</Link><Link className="button ghost" to="/bubblebash/join">Join match</Link></div></div><div className="hero-visual"><div className="planet">◉</div><i className="ring one"/><i className="ring two"/><b className="tag brawl">BUBBLEBASH</b><b className="tag football">FOOTBALL</b><b className="tag cricket">CRICKET</b></div></section><GameCards /><section className="pr-stats"><span><b>100K+</b> Players</span><span><b>500+</b> Battles</span><span><b>3</b> Game modes</span><span><b>∞</b> Chaos</span></section></>;
+  return <><section className="pr-hero"><div className="pr-hero-copy"><p className="kicker">WELCOME TO BRAWLERS ARENA</p><h1>THREE ARENAS<br /><span>ONE COMMUNITY</span></h1><p>Choose your game. Build your team. Buy powers. Watch the chaos.</p><div className="hero-actions"><Link className="button primary" to="/games">Create match <b>→</b></Link><Link className="button ghost" to="/bubblebash/join">Join match</Link></div></div><div className="hero-visual"><div className="hero-bubble">◉</div><i className="hero-ring ring-one" /><i className="hero-ring ring-two" /><span className="hero-orb football">⚽</span><span className="hero-orb cricket">🏏</span><span className="hero-online">100K+<small>Players Online</small></span></div></section><GameCards /><section className="pr-stats"><span>👥 <b>100K+</b><small>Players</small></span><span>♜ <b>500+</b><small>Battles</small></span><span>🎮 <b>3</b><small>Game Modes</small></span><span>🏆 <b>Live Tournaments</b><small>Be part of the next battle</small></span></section></>;
 }
 
 function JoinCreate({ game }: { game: Game }) {
@@ -47,5 +47,5 @@ function Ready({ game }: { game: Game }) { const navigate = useNavigate(); retur
 export default function PlatformPage() {
   const { game: rawGame, step } = useParams(); const game = rawGame && rawGame in gameInfo ? rawGame as Game : undefined;
   const content = useMemo(() => { if (!game) return rawGame === "games" ? <><div className="page-title"><p className="kicker">SELECT YOUR ARENA</p><h1>Choose your arena</h1><p>Different games. Same chaos.</p></div><GameCards /></> : <Home />; if (!step) return <><div className="page-title"><p className="kicker">{gameInfo[game].short}</p><h1>{gameInfo[game].title}</h1><p>{gameInfo[game].detail}</p></div><Mode game={game} /></>; if (step === "mode") return <Mode game={game} />; if (step === "join" || step === "create") return <JoinCreate game={game} />; if (step === "setup" || step === "team" || step === "xi") return <Setup game={game} />; if (step === "powers") return <Powers />; return <Ready game={game} />; }, [game, rawGame, step]);
-  return <div className="projectr"><Header /><main className="pr-main">{content}</main></div>;
+  return <div className="projectr" style={{ backgroundImage: "url('/landingbg.png')" }}><Header /><main className="pr-main">{content}</main></div>;
 }
