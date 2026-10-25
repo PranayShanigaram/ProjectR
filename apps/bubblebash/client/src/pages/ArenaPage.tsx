@@ -1807,6 +1807,229 @@ const ArenaPage: React.FC = () => {
   const lastDamagerRef = useRef<Record<number, string | null>>({});
   const indexOfIdRef = useRef<Record<number, number>>({});
   const lastUiSnapshotTimeRef = useRef<number>(0);
+  const arenaAudioContextRef = useRef<AudioContext | null>(null);
+  const arenaMasterGainRef = useRef<GainNode | null>(null);
+  const arenaCompressorRef = useRef<DynamicsCompressorNode | null>(null);
+  const arenaNoiseBufferRef = useRef<AudioBuffer | null>(null);
+  const lastArenaSoundAtRef = useRef<Record<string, number>>({});
+  const lastArenaSoundOverallRef = useRef(0);
+  const lastArenaContactSoundAtRef = useRef(0);
+
+  const getArenaAudioContext = (): AudioContext | null => {
+    if (typeof window === "undefined") return null;
+    if (!arenaAudioContextRef.current) {
+      const AudioContextConstructor = window.AudioContext
+        ?? (window as Window & { webkitAudioContext?: typeof AudioContext }).webkitAudioContext;
+      if (!AudioContextConstructor) return null;
+      const context = new AudioContextConstructor();
+      const master = context.createGain();
+      const compressor = context.createDynamicsCompressor();
+      master.gain.value = 1;
+      compressor.threshold.value = -2;
+      compressor.knee.value = 3;
+      compressor.ratio.value = 16;
+      compressor.attack.value = 0.003;
+      compressor.release.value = 0.18;
+      master.connect(compressor);
+      compressor.connect(context.destination);
+      arenaAudioContextRef.current = context;
+      arenaMasterGainRef.current = master;
+      arenaCompressorRef.current = compressor;
+    }
+    return arenaAudioContextRef.current;
+  };
+
+  const unlockArenaAudio = () => {
+    const context = getArenaAudioContext();
+    if (context?.state === "suspended") void context.resume().catch(() => {});
+  };
+
+  type ArenaSoundKind =
+    | "bounce" | "collision" | "blade" | "spikeHit" | "intro" | "spikeEnable" | "bladeEnable"
+    | "powerEnable" | "bossPowerEnable" | "eventWarning" | "eventStart" | "eventEnd" | "eventImpact"
+    | "powerRelease" | "powerHit";
+  type ArenaSoundProfile = {
+    start: number;
+    end: number;
+    duration: number;
+    volume: number;
+    wave: OscillatorType;
+    cooldown: number;
+    noiseVolume: number;
+    noiseFrequency: number;
+    noiseType: BiquadFilterType;
+  };
+
+  const playArenaSound = (kind: ArenaSoundKind, variant = "", durationOverride?: number) => {
+    const context = arenaAudioContextRef.current;
+    if (!context || context.state !== "running") return;
+
+    const profiles: Record<ArenaSoundKind, ArenaSoundProfile> = {
+      bounce: { start: 205, end: 115, duration: 0.1, volume: 0.5, wave: "sine", cooldown: 180, noiseVolume: 0.025, noiseFrequency: 420, noiseType: "lowpass" },
+      collision: { start: 165, end: 58, duration: 0.14, volume: 0.86, wave: "triangle", cooldown: 150, noiseVolume: 0.22, noiseFrequency: 650, noiseType: "lowpass" },
+      blade: { start: 920, end: 210, duration: 0.32, volume: 0.78, wave: "sawtooth", cooldown: 220, noiseVolume: 0.16, noiseFrequency: 2400, noiseType: "highpass" },
+      spikeHit: { start: 155, end: 52, duration: 0.16, volume: 0.82, wave: "triangle", cooldown: 180, noiseVolume: 0.24, noiseFrequency: 1050, noiseType: "bandpass" },
+      intro: { start: 78, end: 740, duration: 3, volume: 0.72, wave: "sine", cooldown: 300, noiseVolume: 0.12, noiseFrequency: 900, noiseType: "lowpass" },
+      spikeEnable: { start: 160, end: 920, duration: 3, volume: 0.78, wave: "triangle", cooldown: 300, noiseVolume: 0.2, noiseFrequency: 1500, noiseType: "highpass" },
+      bladeEnable: { start: 1040, end: 190, duration: 3, volume: 0.74, wave: "sawtooth", cooldown: 300, noiseVolume: 0.2, noiseFrequency: 3100, noiseType: "highpass" },
+      powerEnable: { start: 190, end: 980, duration: 3, volume: 0.78, wave: "sine", cooldown: 300, noiseVolume: 0.15, noiseFrequency: 1800, noiseType: "bandpass" },
+      bossPowerEnable: { start: 65, end: 430, duration: 3, volume: 0.86, wave: "triangle", cooldown: 300, noiseVolume: 0.18, noiseFrequency: 620, noiseType: "lowpass" },
+      eventWarning: { start: 660, end: 440, duration: 0.18, volume: 0.62, wave: "sine", cooldown: 220, noiseVolume: 0.06, noiseFrequency: 1200, noiseType: "lowpass" },
+      eventStart: { start: 155, end: 650, duration: 0.65, volume: 0.8, wave: "triangle", cooldown: 220, noiseVolume: 0.2, noiseFrequency: 1250, noiseType: "lowpass" },
+      eventEnd: { start: 420, end: 180, duration: 0.24, volume: 0.62, wave: "sine", cooldown: 220, noiseVolume: 0.12, noiseFrequency: 900, noiseType: "lowpass" },
+      eventImpact: { start: 130, end: 42, duration: 0.19, volume: 0.82, wave: "sawtooth", cooldown: 120, noiseVolume: 0.28, noiseFrequency: 720, noiseType: "lowpass" },
+      powerRelease: { start: 340, end: 210, duration: 0.18, volume: 0.58, wave: "triangle", cooldown: 150, noiseVolume: 0.12, noiseFrequency: 1800, noiseType: "bandpass" },
+      powerHit: { start: 250, end: 80, duration: 0.2, volume: 0.86, wave: "triangle", cooldown: 150, noiseVolume: 0.24, noiseFrequency: 1400, noiseType: "lowpass" },
+    };
+    const profile = { ...profiles[kind] };
+    const soundKey = `${kind}:${variant}`;
+    let isMetalPower = false;
+    let isShuriken = false;
+    if (kind === "powerRelease" || kind === "powerHit") {
+      const key = variant.toLowerCase();
+      const hash = Array.from(key).reduce((value, char) => (value * 31 + char.charCodeAt(0)) >>> 0, 7);
+      isShuriken = key.includes("shuriken");
+      isMetalPower = /shuriken|kunai|katana|sword|blade|disk|mjolnir|spear|arrow/.test(key);
+      const family = /slash|sword|katana|kunai|shuriken|blade|tensho|disk/.test(key) ? "blade"
+        : /bomb|grenade|rocket|missile|smash|atomic|explosion|cannon/.test(key) ? "explosive"
+        : /laser|beam|ray|vision|kamehameha|final_flash/.test(key) ? "beam"
+        : /lightning|thunder|chidori|emp|shock|electric/.test(key) ? "electric"
+        : /ice|frost|freeze|hyorinmaru/.test(key) ? "ice"
+        : /flame|fire|phoenix|magma|lava|heat/.test(key) ? "fire"
+        : /holy|mystic|spirit|rasengan|chakra|void/.test(key) ? "mystic"
+        : "energy";
+      const familyProfile: Record<string, [number, number, OscillatorType, number, BiquadFilterType]> = {
+        blade: [kind === "powerRelease" ? 820 : 145, kind === "powerRelease" ? 300 : 55, "sawtooth", 3000, "highpass"],
+        explosive: [kind === "powerRelease" ? 155 : 105, 42, "sawtooth", 520, "lowpass"],
+        beam: [kind === "powerRelease" ? 780 : 1080, kind === "powerRelease" ? 260 : 330, "sine", 2200, "bandpass"],
+        electric: [kind === "powerRelease" ? 480 : 910, kind === "powerRelease" ? 135 : 210, "square", 2800, "highpass"],
+        ice: [kind === "powerRelease" ? 1040 : 1280, kind === "powerRelease" ? 570 : 390, "sine", 3400, "highpass"],
+        fire: [kind === "powerRelease" ? 260 : 190, kind === "powerRelease" ? 90 : 55, "sawtooth", 1000, "lowpass"],
+        mystic: [kind === "powerRelease" ? 390 : 560, kind === "powerRelease" ? 170 : 230, "sine", 1700, "bandpass"],
+        energy: [kind === "powerRelease" ? 340 : 430, kind === "powerRelease" ? 160 : 105, "triangle", 1800, "lowpass"],
+      };
+      const [start, end, wave, noiseFrequency, noiseType] = familyProfile[family];
+      profile.start = start + (hash % 95);
+      profile.end = end + (hash % 35);
+      profile.wave = wave;
+      profile.noiseFrequency = noiseFrequency;
+      profile.noiseType = noiseType;
+      profile.duration += (hash % 4) * 0.012;
+      if (isShuriken && kind === "powerRelease") {
+        profile.start = 1450 + (hash % 160);
+        profile.end = 510 + (hash % 80);
+        profile.duration = 0.62;
+        profile.wave = "sawtooth";
+        profile.volume = 0.82;
+        profile.noiseFrequency = 5200;
+        profile.noiseType = "highpass";
+        profile.noiseVolume = 0.3;
+      } else if (isMetalPower && kind === "powerHit") {
+        profile.start = 1480 + (hash % 220);
+        profile.end = 390 + (hash % 90);
+        profile.duration = 0.42;
+        profile.wave = "sine";
+        profile.volume = 0.95;
+        profile.noiseFrequency = 4700;
+        profile.noiseType = "highpass";
+        profile.noiseVolume = 0.34;
+      }
+    } else if (kind.startsWith("event")) {
+      const hash = Array.from(variant).reduce((value, char) => (value * 31 + char.charCodeAt(0)) >>> 0, 3);
+      profile.start += hash % 150;
+      profile.end += hash % 70;
+    }
+    if (durationOverride !== undefined) profile.duration = durationOverride;
+
+    const now = performance.now();
+    const isPowerSound = kind === "powerRelease" || kind === "powerHit";
+    const isContactSound = kind === "bounce" || kind === "collision" || kind === "spikeHit" || kind === "eventImpact";
+    const isPrioritySound = kind === "blade" || kind === "spikeHit" || kind === "eventImpact"
+      || kind === "spikeEnable" || kind === "bladeEnable" || kind === "powerEnable" || kind === "bossPowerEnable";
+    if (now - (lastArenaSoundAtRef.current[soundKey] ?? 0) < profile.cooldown) return;
+    if (isContactSound) {
+      if (now - lastArenaContactSoundAtRef.current < 110) return;
+      lastArenaContactSoundAtRef.current = now;
+    }
+    if (isPowerSound) {
+      const powerKindKey = `power:${kind}`;
+      if (now - (lastArenaSoundAtRef.current[powerKindKey] ?? 0) < 85) return;
+      lastArenaSoundAtRef.current[powerKindKey] = now;
+    } else if (!isPrioritySound) {
+      if (now - lastArenaSoundOverallRef.current < 35) return;
+      lastArenaSoundOverallRef.current = now;
+    }
+    lastArenaSoundAtRef.current[soundKey] = now;
+
+    const oscillator = context.createOscillator();
+    const gain = context.createGain();
+    const startAt = context.currentTime;
+    oscillator.type = profile.wave;
+    oscillator.frequency.setValueAtTime(profile.start, startAt);
+    oscillator.frequency.exponentialRampToValueAtTime(profile.end, startAt + profile.duration);
+    gain.gain.setValueAtTime(0.0001, startAt);
+    const volume = profile.volume * 1.5;
+    gain.gain.exponentialRampToValueAtTime(volume * (kind === "blade" || kind === "bladeEnable" ? 0.72 : 1), startAt + 0.012);
+    gain.gain.exponentialRampToValueAtTime(0.0001, startAt + profile.duration);
+    oscillator.connect(gain);
+    gain.connect(arenaMasterGainRef.current ?? context.destination);
+    oscillator.start(startAt);
+    oscillator.stop(startAt + profile.duration + 0.01);
+
+    if (kind === "blade" || kind === "bladeEnable" || (kind === "powerRelease" && isShuriken)) {
+      const rotor = context.createOscillator();
+      const rotorDepth = context.createGain();
+      rotor.type = "sine";
+      rotor.frequency.setValueAtTime(kind === "blade" ? 28 : isShuriken ? 25 : 16, startAt);
+      rotorDepth.gain.setValueAtTime(volume * (isShuriken ? 0.4 : 0.28), startAt);
+      rotor.connect(rotorDepth);
+      rotorDepth.connect(gain.gain);
+      rotor.start(startAt);
+      rotor.stop(startAt + profile.duration);
+    }
+
+    if (isMetalPower && (!isShuriken || kind === "powerHit")) {
+      for (const ratio of [1.47, 2.13]) {
+        const partial = context.createOscillator();
+        const partialGain = context.createGain();
+        partial.type = "sine";
+        partial.frequency.setValueAtTime(profile.start * ratio, startAt);
+        partial.frequency.exponentialRampToValueAtTime(profile.end * ratio, startAt + profile.duration * 0.9);
+        partialGain.gain.setValueAtTime(0.0001, startAt);
+        partialGain.gain.exponentialRampToValueAtTime(volume * 0.24, startAt + 0.004);
+        partialGain.gain.exponentialRampToValueAtTime(0.0001, startAt + profile.duration * 0.9);
+        partial.connect(partialGain);
+        partialGain.connect(arenaMasterGainRef.current ?? context.destination);
+        partial.start(startAt);
+        partial.stop(startAt + profile.duration);
+      }
+    }
+
+    if (profile.noiseVolume > 0) {
+      if (!arenaNoiseBufferRef.current) {
+        const length = Math.ceil(context.sampleRate * 1.2);
+        const buffer = context.createBuffer(1, length, context.sampleRate);
+        const samples = buffer.getChannelData(0);
+        for (let i = 0; i < length; i++) samples[i] = Math.random() * 2 - 1;
+        arenaNoiseBufferRef.current = buffer;
+      }
+      const noise = context.createBufferSource();
+      const filter = context.createBiquadFilter();
+      const noiseGain = context.createGain();
+      noise.buffer = arenaNoiseBufferRef.current;
+      filter.type = profile.noiseType;
+      filter.frequency.setValueAtTime(profile.noiseFrequency, startAt);
+      noiseGain.gain.setValueAtTime(0.0001, startAt);
+      const noiseDuration = Math.min(profile.duration * 0.72, 0.32);
+      noiseGain.gain.exponentialRampToValueAtTime(profile.noiseVolume * 1.5, startAt + 0.012);
+      noiseGain.gain.exponentialRampToValueAtTime(0.0001, startAt + noiseDuration);
+      noise.connect(filter);
+      filter.connect(noiseGain);
+      noiseGain.connect(arenaMasterGainRef.current ?? context.destination);
+      noise.start(startAt, Math.random() * 0.5);
+      noise.stop(startAt + noiseDuration + 0.02);
+    }
+  };
   
   const normalizePlayer = (p?: string | null) => {
     if (!p) return '';
@@ -2094,6 +2317,25 @@ const ArenaPage: React.FC = () => {
     const projX = x1 + t * dx;
     const projY = y1 + t * dy;
     return Math.sqrt((px - projX) * (px - projX) + (py - projY) * (py - projY));
+  };
+
+  const bounceWithDeviation = (vx: number, vy: number, normalX: number, normalY: number, deviation: number) => {
+    const speed = Math.hypot(vx, vy);
+    const normalVelocity = vx * normalX + vy * normalY;
+    if (speed < 0.001 || normalVelocity >= 0) return { vx, vy };
+
+    const reflectedVx = vx - 2 * normalVelocity * normalX;
+    const reflectedVy = vy - 2 * normalVelocity * normalY;
+    const inwardAngle = Math.atan2(normalY, normalX);
+    const reflectedAngle = Math.atan2(reflectedVy, reflectedVx);
+    const relativeAngle = Math.atan2(
+      Math.sin(reflectedAngle - inwardAngle),
+      Math.cos(reflectedAngle - inwardAngle),
+    );
+    const randomAngle = (Math.random() * 2 - 1) * deviation;
+    const adjustedAngle = clamp(relativeAngle + randomAngle, -Math.PI / 2 + 0.01, Math.PI / 2 - 0.01);
+    const angle = inwardAngle + adjustedAngle;
+    return { vx: Math.cos(angle) * speed, vy: Math.sin(angle) * speed };
   };
 
   // Constrain position to arena boundary
@@ -3230,7 +3472,14 @@ const ArenaPage: React.FC = () => {
           const imageName = player.imageName || player.image || player.imageSrc;
           const imageSrc = imageName ? (imageName.startsWith("http") || imageName.startsWith("/") ? imageName : `http://localhost:5000/api/${imagePath}/${encodeURIComponent(imageName)}`) : "";
           playerNamesRef.current.set(id, playerName);
-            if (arenaType === ARENA_TYPES.BRAWL) brawlTeamsRef.current.set(id, matchPayload?.mode === "duel" ? (index === 0 ? "solo" : "many") : player.role === "solo" || matchPayload?.soloPlayer === player.name ? "solo" : "many");
+            if (arenaType === ARENA_TYPES.BRAWL) {
+              const team = matchPayload?.mode === "duel"
+                ? index === 0 ? "solo" : "many"
+                : matchPayload?.soloPlayer
+                  ? matchPayload.soloPlayer === playerName ? "solo" : "many"
+                  : player.role === "solo" ? "solo" : "many";
+              brawlTeamsRef.current.set(id, team);
+            }
           return {
             x: position.x,
             y: position.y,
@@ -4176,6 +4425,7 @@ const ArenaPage: React.FC = () => {
             // Trigger animation
             spikeAnimationShownRef.current = true;
             animationPauseRef.current = true;
+            playArenaSound("spikeEnable", "", 3);
             setShowSpikeAnimation(true);
             setTimeout(() => {
               setShowSpikeAnimation(false);
@@ -4204,6 +4454,7 @@ const ArenaPage: React.FC = () => {
             // Trigger animation
             bladeAnimationShownRef.current = true;
             animationPauseRef.current = true;
+            playArenaSound("bladeEnable", "", 3);
             setShowBladeAnimation(true);
             setTimeout(() => {
               setShowBladeAnimation(false);
@@ -4255,6 +4506,7 @@ const ArenaPage: React.FC = () => {
           if (elapsedSeconds >= playerPowersAutoEnableTime) {
             // Trigger animation
             animationPauseRef.current = true;
+            playArenaSound("powerEnable", "", 3);
             setShowPowerAnimation(true);
             setTimeout(() => {
               setShowPowerAnimation(false);
@@ -4271,6 +4523,7 @@ const ArenaPage: React.FC = () => {
           if (elapsedSeconds >= brawlPowersAutoEnableTime) {
             // Trigger animation
             animationPauseRef.current = true;
+            playArenaSound("powerEnable", "", 3);
             setShowPowerAnimation(true);
             setTimeout(() => {
               setShowPowerAnimation(false);
@@ -4287,6 +4540,7 @@ const ArenaPage: React.FC = () => {
           if (elapsedSeconds >= superpowerAutoEnableTime) {
             bossPowerAnimationShownRef.current = true;
             animationPauseRef.current = true;
+            playArenaSound("bossPowerEnable", "", 3);
             setShowBossPowerAnimation(true);
             setTimeout(() => {
               setShowBossPowerAnimation(false);
@@ -4427,6 +4681,7 @@ const ArenaPage: React.FC = () => {
               const life = eventDurationOverrideRef.current || meta.durationMs;
               const started: ArenaEventState = { ...ev, phase: "active", startedAt: nowMs, endsAt: nowMs + life };
               const mod = ev.kind === "random_modifier" ? ev.modifier : ev.kind;
+              playArenaSound("eventStart", mod || ev.kind);
               if (mod === "double_damage") globalDamageMultRef.current = 2;
               else if (mod === "low_gravity") globalStepMultRef.current = 0.6;
               else if (mod === "speed_boost") globalStepMultRef.current = 1.5;
@@ -4440,6 +4695,7 @@ const ArenaPage: React.FC = () => {
             } else if (ev.phase === "active") {
               if (nowMs >= ev.endsAt) {
                 // ---- end + cleanup: every global returns to neutral.
+                playArenaSound("eventEnd", ev.kind);
                 clearEventGlobals();
                 activeEventRef.current = null;
                 setActiveEvent(null);
@@ -4506,6 +4762,7 @@ const ArenaPage: React.FC = () => {
                   ? `${ARENA_EVENT_INFO.random_modifier.name}: ${modifier.replace(/_/g, " ")}`
                   : ARENA_EVENT_INFO[kind].name;
                 const next: ArenaEventState = { kind, phase: "warning", startedAt: nowMs, endsAt: 0, label, modifier };
+                playArenaSound("eventWarning", modifier || kind);
                 activeEventRef.current = next;
                 setActiveEvent(next);
                 lastEventAtRef.current = nowMs;
@@ -4519,10 +4776,28 @@ const ArenaPage: React.FC = () => {
             arenaMeteorsRef.current = arenaMeteorsRef.current.filter((m) => m.y - m.r <= dims.height + 40);
             setArenaMeteors([...arenaMeteorsRef.current]);
           }
-          // Swords (Double Damage event) fall top-to-bottom; purely decorative.
+          // Falling swords deal one collision-damage hit, then disappear.
           if (arenaSwordsRef.current.length > 0) {
-            for (const s of arenaSwordsRef.current) { s.y += s.vy; s.rot += 6; }
-            arenaSwordsRef.current = arenaSwordsRef.current.filter((s) => s.y <= dims.height + 40);
+            const spentSwords = new Set<number>();
+            for (const s of arenaSwordsRef.current) {
+              s.y += s.vy;
+              s.rot += 6;
+              for (let i = 0; i < n; i++) {
+                if (hArr[i] <= 0) continue;
+                const dx = xArr[i] - s.x;
+                const dy = yArr[i] - s.y;
+                const hitRadius = rArr[i] + 12;
+                if (dx * dx + dy * dy >= hitRadius * hitRadius) continue;
+                const collisionDamage = arenaType === ARENA_TYPES.BOSS ? bossCollisionDamage : baseDamage;
+                const damage = Math.round(collisionDamage * globalDamageMultRef.current);
+                hArr[i] = Math.max(0, hArr[i] - damage);
+                playArenaSound("eventImpact", "double_damage");
+                spawnPickupFx(idArr[i], `-${damage}`, "#ef4444");
+                spentSwords.add(s.id);
+                break;
+              }
+            }
+            arenaSwordsRef.current = arenaSwordsRef.current.filter((s) => !spentSwords.has(s.id) && s.y <= dims.height + 40);
             setArenaSwords([...arenaSwordsRef.current]);
           }
         }
@@ -4618,21 +4893,12 @@ const ArenaPage: React.FC = () => {
           const constrained = constrainToArenaBoundary(nx, ny, rArr[i] + arenaShrinkPadRef.current, dims);
           
           if (constrained.vx !== 0 || constrained.vy !== 0) {
-            // Bounce occurred - apply constraint and reverse velocity
+            playArenaSound("bounce");
             nx = constrained.x;
             ny = constrained.y;
-            // Reflect velocity based on bounce normal, preserve full speed (no energy loss)
-            nvx = constrained.vx * Math.abs(nvx);
-            nvy = constrained.vy * Math.abs(nvy);
-            
-            // Apply configured bounce deviation (user-adjustable randomness)
-            const randomAngle = (Math.random() - 0.5) * bounceDeviation; 
-            const currentSpeed = Math.sqrt(nvx * nvx + nvy * nvy);
-            const currentAngle = Math.atan2(nvy, nvx);
-            const newAngle = currentAngle + randomAngle;
-            nvx = Math.cos(newAngle) * currentSpeed;
-            nvy = Math.sin(newAngle) * currentSpeed;
-            // Speed is preserved after bounce - no forced slowdown
+            const bounced = bounceWithDeviation(nvx, nvy, constrained.vx, constrained.vy, bounceDeviation);
+            nvx = bounced.vx;
+            nvy = bounced.vy;
           }
           // Otherwise use unconstrained position (only constrain when bouncing)
 
@@ -4761,6 +5027,7 @@ const ArenaPage: React.FC = () => {
               const minD2 = minD * minD;
               
               if (distSq < minD2) {
+                playArenaSound("collision");
                 // Store original positions for correct bounce calculation
                 const origXi = xArr[i];
                 const origYi = yArr[i];
@@ -4890,6 +5157,7 @@ const ArenaPage: React.FC = () => {
           for (let i = 0; i < spikeCheckLimit; i++) {
             const s = detectSpikeHit(xArr[i], yArr[i], rArr[i]);
             if (s) {
+              playArenaSound("spikeHit");
               const bubbleId = idArr[i];
               const lastSpikeHit = damageCooldownRef.current[bubbleId] ?? 0;
               
@@ -5011,6 +5279,7 @@ const ArenaPage: React.FC = () => {
                     // In boss arena, blades DO damage between player bubbles
                     
                     if (shouldApplyDamage) {
+                      playArenaSound("blade");
                       hArr[i] = Math.max(hArr[i] - bladeDamage, 0);
                       (damageCooldownRef.current as any)[cooldownKey] = nowMs;
                       
@@ -5054,6 +5323,7 @@ const ArenaPage: React.FC = () => {
                     }
                     
                     if (shouldApplyDamage) {
+                      playArenaSound("blade");
                       hArr[j] = Math.max(hArr[j] - bladeDamage, 0);
                       (damageCooldownRef.current as any)[cooldownKey] = nowMs;
                       
@@ -5107,6 +5377,7 @@ const ArenaPage: React.FC = () => {
                   const lastBladeHit = (damageCooldownRef.current as any)[cooldownKey] ?? 0;
                   
                   if (nowMs - lastBladeHit > BLADE_COOLDOWN_MS) {
+                    playArenaSound("blade");
                     sb.health = Math.max(sb.health - bossSuperbubbleBladeDamageRef.current, 0);
                     (damageCooldownRef.current as any)[cooldownKey] = nowMs;
                   }
@@ -5130,6 +5401,7 @@ const ArenaPage: React.FC = () => {
                 const lastBladeHit = (damageCooldownRef.current as any)[cooldownKey] ?? 0;
                 
                 if (nowMs - lastBladeHit > BLADE_COOLDOWN_MS) {
+                  playArenaSound("blade");
                   hArr[i] = Math.max(hArr[i] - bossNormalBladeDamageRef.current, 0);
                   (damageCooldownRef.current as any)[cooldownKey] = nowMs;
                 }
@@ -5224,6 +5496,7 @@ const ArenaPage: React.FC = () => {
                 const bid = idArr[b];
                 if (nowMs < (lockedUntilRef.current.get(bid) ?? 0)) continue; // Locked
                 applyPickupEffect(p.kind, bid, b, nowMs);
+                playArenaSound("eventImpact", p.kind);
                 remove.push(p.id);
                 break;
               }
@@ -5322,6 +5595,7 @@ const ArenaPage: React.FC = () => {
               if (dx * dx + dy * dy >= need * need) continue;
               const meteorDmg = Math.round(12 * globalDamageMultRef.current);
               hArr[i] = Math.max(0, hArr[i] - meteorDmg);
+              playArenaSound("eventImpact", "meteor");
               spawnPickupFx(idArr[i], `-${meteorDmg}`, "#f97316");
               const d = Math.sqrt(dx * dx + dy * dy) || 1;
               vxArr[i] += (dx / d) * 2;
@@ -5533,6 +5807,7 @@ const ArenaPage: React.FC = () => {
                       const id = nextProjectileId;
                       const newProj: Projectile = { id, x: xArr[bubbleIdx], y: yArr[bubbleIdx], vx, vy, type: powerKey, fromBubbleId: bubbleId, fromSuperbubble: false, createdAt: Date.now() };
                       appendProjectile(projectilesRef.current, newProj);
+                      playArenaSound("powerRelease", String(powerKey));
                     }
                     
                     playerProjectilesFired = true;
@@ -5737,6 +6012,7 @@ const ArenaPage: React.FC = () => {
                         const id = nextProjectileId;
                         const newProj: Projectile = { id, x: xArr[bubbleIdx], y: yArr[bubbleIdx], vx, vy, type: powerKey, fromBubbleId: bubbleId, fromSuperbubble: false, createdAt: Date.now() };
                         appendProjectile(projectilesRef.current, newProj);
+                        playArenaSound("powerRelease", String(powerKey));
                       }
                       
                       projectilesFired = true;
@@ -6090,20 +6366,23 @@ const ArenaPage: React.FC = () => {
             const constrained = constrainToArenaBoundary(sbNewX, sbNewY, sb.radius, dims);
             
             if (constrained.vx !== 0 || constrained.vy !== 0) {
+              playArenaSound("bounce");
               // Bounce occurred - apply constraint and reverse velocity
               sb.x = constrained.x;
               sb.y = constrained.y;
               sb.vx = constrained.vx * Math.abs(sb.vx);
               sb.vy = constrained.vy * Math.abs(sb.vy);
               
-              // Add small random perturbation to prevent straight-line bouncing
-              const randomAngle = (Math.random() - 0.5) * 0.15; // ±4.3 degrees
-              const currentAngle = Math.atan2(sb.vy, sb.vx);
-              const newAngle = currentAngle + randomAngle;
-              // Enforce consistent superbubble speed
+              const bounced = bounceWithDeviation(sb.vx, sb.vy, constrained.vx, constrained.vy, bounceDeviation);
+              sb.vx = bounced.vx;
+              sb.vy = bounced.vy;
               const targetSpeedS = speed * 0.8;
-              sb.vx = Math.cos(newAngle) * targetSpeedS;
-              sb.vy = Math.sin(newAngle) * targetSpeedS;
+              const bouncedSpeed = Math.hypot(sb.vx, sb.vy);
+              if (bouncedSpeed > 0.01) {
+                const factor = targetSpeedS / bouncedSpeed;
+                sb.vx *= factor;
+                sb.vy *= factor;
+              }
             } else {
               // No bounce, use unconstrained position
               sb.x = sbNewX;
@@ -6124,6 +6403,7 @@ const ArenaPage: React.FC = () => {
               const n = { x: xArr[i], y: yArr[i], r: rArr[i] };
               const minD2 = (n.r + sb.radius) * (n.r + sb.radius);
               if (dist2(n, sb) < minD2) {
+                playArenaSound("collision");
                 // symmetric separation (move both bodies out of overlap)
                 const sep = separatePair(n.x, n.y, n.r, sb.x, sb.y, sb.radius);
                 // apply both sides
@@ -6668,6 +6948,7 @@ const ArenaPage: React.FC = () => {
               // Use brawl arena power damage for this power type
               const damage = (brawlPowerDamages[p.type] || 5) * globalDamageMultRef.current;
               hArr[i] = Math.max(0, hArr[i] - damage);
+              playArenaSound("powerHit", String(p.type));
               
               // Track last damager
               try {
@@ -6700,6 +6981,7 @@ const ArenaPage: React.FC = () => {
               if (dx * dx + dy * dy < rArr[i] * rArr[i]) {
                 if (hasActiveShield(idArr[i])) { hit = true; break; }
                 hArr[i] = Math.max(0, hArr[i] - (normalPowerDamages[p.type] || 5) * globalDamageMultRef.current);
+                playArenaSound("powerHit", String(p.type));
                 hit = true;
                 break;
               }
@@ -6713,6 +6995,7 @@ const ArenaPage: React.FC = () => {
               // Use boss arena normal bubble power damage for this power type
               const damage = (bossNormalPowerDamages[p.type] || 5) * globalDamageMultRef.current;
               sb.health = Math.max(0, sb.health - damage);
+              playArenaSound("powerHit", String(p.type));
               superBubbleRef.current = { ...sb };
               updateUiSnapshotFromArrays();
               hit = true;
@@ -6737,6 +7020,7 @@ const ArenaPage: React.FC = () => {
               // Use boss arena superbubble power damage for this power type
               const damage = (bossSuperPowerDamages[p.type] || 5) * globalDamageMultRef.current;
               hArr[i] = Math.max(0, hArr[i] - damage);
+              playArenaSound("powerHit", String(p.type));
               try {
                 const rawAttacker = superBubbleRef.current?.imgSrc ?? "superbubble";
                 const attacker = normalizePlayer(rawAttacker);
@@ -7252,6 +7536,7 @@ const ArenaPage: React.FC = () => {
       // Ensure no duplicate IDs
       projectilesRef.current = projectilesRef.current.filter(p => p.id !== id);
       appendProjectile(projectilesRef.current, newProj);
+      playArenaSound("powerRelease", String(powerKey));
     }
     setProjectiles([...projectilesRef.current]);
     const mfId = Date.now() + Math.floor(Math.random() * 10000);
@@ -10788,8 +11073,10 @@ const ArenaPage: React.FC = () => {
     
     // For 1vMany: show solo bubble on top, many opponents in vertical list below
     if (brawlMode === "1vMany" && uiBubblesSnapshot.length >= 2) {
-      const solo = uiBubblesSnapshot[0];
-      const many = uiBubblesSnapshot.slice(1, 10); // Up to 9 opponents
+      const solo = uiBubblesSnapshot.find((bubble) => brawlTeamsRef.current.get(bubble.id) === "solo") ?? uiBubblesSnapshot[0];
+      const many = uiBubblesSnapshot
+        .filter((bubble) => bubble.id !== solo.id && brawlTeamsRef.current.get(bubble.id) !== "solo")
+        .slice(0, 9); // Up to 9 opponents
       const soloName = solo.name || decodeURIComponent((solo.imgSrc.split("/").pop() ?? `#${solo.id}`).replace(/\.(png|jpg|jpeg|webp|gif|svg|bmp|ico)$/i, "")).replace(/%20/g, " ");
       
       return (
@@ -10864,7 +11151,7 @@ const ArenaPage: React.FC = () => {
     console.log('isDraw:', isDraw, 'bubbleCount:', bubbleCount, 'winnerBubble?.imgSrc:', winnerBubble?.imgSrc);
     if (isDraw) {
       return (
-        <div className="winner-modal" style={{ position: "absolute", inset: 0, display: "flex", alignItems: "center", justifyContent: "center", zIndex: 9999, pointerEvents: "auto" }}>
+        <div className="winner-modal" style={{ position: "fixed", inset: 0, display: "flex", alignItems: "center", justifyContent: "center", zIndex: 20000, pointerEvents: "auto" }}>
           <div
             onClick={() => {
               resetArenaKeepType();
@@ -10891,7 +11178,7 @@ const ArenaPage: React.FC = () => {
       const title = isSuperBubbleWin ? "Final Boss ☠️ Wins!" : "Players Win!";
       
       return (
-        <div className="winner-modal" style={{ position: "absolute", inset: 0, display: "flex", alignItems: "center", justifyContent: "center", zIndex: 9999, pointerEvents: "auto" }}>
+        <div className="winner-modal" style={{ position: "fixed", inset: 0, display: "flex", alignItems: "center", justifyContent: "center", zIndex: 20000, pointerEvents: "auto" }}>
           <div
             onClick={() => {
               resetArenaKeepType();
@@ -10920,7 +11207,7 @@ const ArenaPage: React.FC = () => {
     }
     if (winners && winners.length > 0) {
       return (
-        <div className="winner-modal" style={{ position: "absolute", inset: 0, display: "flex", alignItems: "center", justifyContent: "center", zIndex: 9999, pointerEvents: "auto" }}>
+        <div className="winner-modal" style={{ position: "fixed", inset: 0, display: "flex", alignItems: "center", justifyContent: "center", zIndex: 20000, pointerEvents: "auto" }}>
           <div
             onClick={() => {
               resetArenaKeepType();
@@ -10965,7 +11252,7 @@ const ArenaPage: React.FC = () => {
     const winnerName = winnerBubble.name || getNameFromImgSrc(winnerBubble.imgSrc);
     
     return (
-      <div className="winner-modal" style={{ position: "absolute", inset: 0, display: "flex", alignItems: "center", justifyContent: "center", zIndex: 9999, pointerEvents: "auto" }}>
+      <div className="winner-modal" style={{ position: "fixed", inset: 0, display: "flex", alignItems: "center", justifyContent: "center", zIndex: 20000, pointerEvents: "auto" }}>
         <div
           onClick={() => {
             resetArenaKeepType();
@@ -11016,6 +11303,7 @@ const ArenaPage: React.FC = () => {
   // ---------- Play handler ----------
 
   const handlePlay = () => {
+    unlockArenaAudio();
     if ((idListRef.current === null || countRef.current === 0) && uiBubblesSnapshot.length > 0) {
       setBubblesFromArraysToUi(uiBubblesSnapshot);
     }
@@ -11074,6 +11362,7 @@ const ArenaPage: React.FC = () => {
     
     // Show arena intro animation first
     animationPauseRef.current = true;
+    playArenaSound("intro", "", 3);
     setShowArenaIntroAnimation(true);
     
     setTimeout(() => {
@@ -11085,6 +11374,7 @@ const ArenaPage: React.FC = () => {
         (arenaType === ARENA_TYPES.BOSS && playerPowersEnabled && playerPowersAutoEnableTime === 0) ||
         (arenaType === ARENA_TYPES.BRAWL && brawlPowersEnabled && brawlPowersAutoEnableTime === 0)
       );
+      if (bladeEnabled && bladeAutoEnableTime === 0) playArenaSound("bladeEnable", "", 1.2);
       
       if (needsSpikeAnimation || needsPowerAnimation) {
         // Pause game for animations
@@ -11092,6 +11382,7 @@ const ArenaPage: React.FC = () => {
         
         // Show spike animation first
         if (needsSpikeAnimation) {
+          playArenaSound("spikeEnable", "", 4);
           setShowSpikeAnimation(true);
           setTimeout(() => {
             setShowSpikeAnimation(false);
@@ -11099,6 +11390,7 @@ const ArenaPage: React.FC = () => {
             
             // Show power animation after spike animation
             if (needsPowerAnimation) {
+              playArenaSound("powerEnable", "", 4);
               setShowPowerAnimation(true);
               setTimeout(() => {
                 setShowPowerAnimation(false);
@@ -11112,6 +11404,7 @@ const ArenaPage: React.FC = () => {
           }, 4000);
         } else if (needsPowerAnimation) {
           // Only power animation
+          playArenaSound("powerEnable", "", 4);
           setShowPowerAnimation(true);
           setTimeout(() => {
             setShowPowerAnimation(false);
@@ -12715,9 +13008,10 @@ const ArenaPage: React.FC = () => {
             <svg className="arena-shape-outline" viewBox="0 0 100 100" preserveAspectRatio="none" aria-hidden="true">
               {renderArenaOutline()}
             </svg>
-            {(winner || winnersList || winnersImages) && <WinnerOverlay winnerBubble={winner ?? undefined} winners={winnersList ?? undefined} winnersImgs={winnersImages ?? undefined} bubbleCount={countRef.current} />}
         </div>
         </div>
+
+        {(winner || winnersList || winnersImages) && <WinnerOverlay winnerBubble={winner ?? undefined} winners={winnersList ?? undefined} winnersImgs={winnersImages ?? undefined} bubbleCount={countRef.current} />}
 
         {/* Leaderboard next to arena — pinned flush to the right edge */}
         <div
